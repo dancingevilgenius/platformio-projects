@@ -1,0 +1,21 @@
+{
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/compile_commands.json",
+  "C_Cpp.default.includePath": [
+    "C:/Users/Carlos/.platformio/packages/framework-arduinoespressif32/cores/esp32",
+    "C:/Users/Carlos/.platformio/packages/framework-arduinoespressif32/variants/adafruit_qtpy_esp32",
+    "${workspaceFolder}/../../../libraries/ArduinoJson/src",
+    "${workspaceFolder}/../../../libraries/Adafruit_IS31FL3741_Library",
+    "${workspaceFolder}/../../../libraries/Adafruit_GFX_Library",
+    "${workspaceFolder}/../../../libraries/Adafruit_BusIO",
+    "${workspaceFolder}/../../../libraries/ESPAsyncWebServer/src",
+    "${workspaceFolder}/../../../libraries/AsyncTCP/src",
+    "${workspaceFolder}/../../../libraries/DFRobot_MatrixLidar",
+    "${workspaceFolder}/../../../libraries/Serial_Controlled_Motor_Driver/src"
+  ],
+  "clangd.arguments": [
+    "--query-driver=C:/Users/Carlos/.platformio/packages/toolchain-*/bin/*,**/xtensa-*-elf-g++*",
+    "--compile-commands-dir=C:/Users/Carlos/Documents/Programming/VSCode/platformio-projects/Robots/MiniSumo/MiniSumo_QT_PY_Pico_8x8_13x9_SCMD"
+  ]
+}
+

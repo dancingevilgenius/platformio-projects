@@ -77,5 +77,10 @@ Project-specific libraries can still live in that project's `lib/` folder.
 | `Adafruit_GFX_Library/` | OLED graphics (ConeStalker ZioUltrasonicSensor) |
 | `Adafruit_SSD1306/` | SSD1306 OLED driver |
 | `Adafruit_BusIO/` | I2C/SPI helpers for Adafruit libs |
+| `Adafruit_IS31FL3741_Library/` | QT Py 13x9 RGB matrix (MiniSumo) |
+| `ArduinoJson/` | JSON for MiniSumo web UI |
+| `AsyncTCP/` | ESP32 async TCP (ESP32Async 3.4.10) |
+| `ESPAsyncWebServer/` | Async HTTP/WebSocket server (ESP32Async 3.11.0) |
+| `DFRobot_MatrixLidar/` | DFRobot 8x8 matrix ToF lidar |
 
 Projects with `extends = common` pick these up automatically via `lib_extra_dirs`.
