@@ -1,12 +1,18 @@
 #include <Arduino.h>
+#include <Adafruit_NeoPixel.h>
 
 // Maker-ESP32 Pro: four DC/encoder-motor driver channels.
 // Same GPIO map as NULLLAB motorTest.zip (Pro names them M0..M3).
 // Original Maker-ESP32 labeled the same pins M1..M4.
+// RGB1..RGB4 are four WS2812 LEDs on GPIO 16 (same as rgbTest.zip),
+// mapped in order to M0..M3: forward=green, reverse=red, stop=off.
 #define PWM_FREQ_HZ 5000
 #define PWM_BITS 8
 #define MOTOR_PWM 255
 #define HOLD_MS 1000
+#define RGB_PIN 16
+#define NUM_LEDS 4
+#define RGB_BRIGHTNESS 20
 
 struct Motor {
   const char *name;
@@ -23,6 +29,19 @@ static Motor motors[] = {
     {"M3", 14, 15, 6, 7},
 };
 
+Adafruit_NeoPixel rgb(NUM_LEDS, RGB_PIN, NEO_GRB + NEO_KHZ800);
+
+static void ledForMotor(size_t index, int speed) {
+  uint32_t color = 0;
+  if (speed > 0) {
+    color = rgb.Color(0, 255, 0);
+  } else if (speed < 0) {
+    color = rgb.Color(255, 0, 0);
+  }
+  rgb.setPixelColor(index, color);
+  rgb.show();
+}
+
 static void motorWrite(const Motor &m, int dutyA, int dutyB) {
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
   ledcWrite(m.pinA, dutyA);
@@ -33,7 +52,8 @@ static void motorWrite(const Motor &m, int dutyA, int dutyB) {
 #endif
 }
 
-static void motorSpeed(const Motor &m, int speed) {
+static void motorSpeed(size_t index, int speed) {
+  const Motor &m = motors[index];
   if (speed > 0) {
     motorWrite(m, speed, 0);
   } else if (speed < 0) {
@@ -41,11 +61,12 @@ static void motorSpeed(const Motor &m, int speed) {
   } else {
     motorWrite(m, 0, 0);
   }
+  ledForMotor(index, speed);
 }
 
 static void stopAll() {
   for (size_t i = 0; i < 4; i++) {
-    motorSpeed(motors[i], 0);
+    motorSpeed(i, 0);
   }
 }
 
@@ -53,7 +74,13 @@ void setup() {
   Serial.begin(115200);
   delay(300);
   Serial.println("Maker-ESP32 Pro motor demo (M0..M3)");
+  Serial.println("RGB1..RGB4 track motors: green=fwd, red=rev");
   Serial.println("Need 6-16V on the DC jack. Set Motor/IO switch to Motor for M2/M3.");
+
+  rgb.begin();
+  rgb.setBrightness(RGB_BRIGHTNESS);
+  rgb.clear();
+  rgb.show();
 
   for (size_t i = 0; i < 4; i++) {
     Motor &m = motors[i];
@@ -76,15 +103,15 @@ void loop() {
 
     Serial.print(m.name);
     Serial.println(" forward");
-    motorSpeed(m, MOTOR_PWM);
+    motorSpeed(i, MOTOR_PWM);
     delay(HOLD_MS);
 
     Serial.print(m.name);
     Serial.println(" reverse");
-    motorSpeed(m, -MOTOR_PWM);
+    motorSpeed(i, -MOTOR_PWM);
     delay(HOLD_MS);
 
-    motorSpeed(m, 0);
+    motorSpeed(i, 0);
   }
 
   Serial.println("Pause");
