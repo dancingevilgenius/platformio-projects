@@ -1,0 +1,27 @@
+# Clangd uses host Clang, not xtensa-esp32-elf-g++. Drop GCC/ESP32-only
+# flags that Clang rejects, then let --query-driver supply toolchain includes.
+CompileFlags:
+  Remove:
+    - -mlongcalls
+    - -mlong-calls
+    - -mtext-section-literals
+    - -mdisable-hardware-atomics
+    - -mfix-esp32-psram-cache-issue
+    - -mfix-esp32-psram-cache-strategy=*
+    - -fstrict-volatile-bitfields
+    - -fno-tree-switch-conversion
+    - -fno-jump-tables
+    - -freorder-blocks
+    - -fno-shrink-wrap
+    - -fipa-pta
+    - -free
+    - -Wno-frame-address
+    - -Wno-error=unused-but-set-variable
+    - -Wno-error=unused-function
+    - -Wno-error=unused-variable
+    - -Wno-error=deprecated-declarations
+
+Diagnostics:
+  Suppress:
+    - drv_unknown_argument
+    - unknown-argument
