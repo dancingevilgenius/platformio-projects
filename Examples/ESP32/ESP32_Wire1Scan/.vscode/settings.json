@@ -1,0 +1,7 @@
+{
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "clangd.arguments": [
+    "--query-driver=C:/Users/Carlos/.platformio/packages/toolchain-*/bin/*,**/xtensa-*-elf-g++*",
+    "--compile-commands-dir=${workspaceFolder}"
+  ]
+}
