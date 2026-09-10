@@ -13,7 +13,6 @@
 #include <LittleFS.h>
 //#include <ArduinoJson.h>
 #include <map>
-#include <vector>
 #include <stdint.h>
 #include "SCMD.h"
 #include "SCMD_config.h" //Contains #defines for common SCMD register names and values
@@ -47,10 +46,10 @@ struct WifiCredential {
 #define NUM_NETWORKS 1
 
 WifiCredential wifiList[NUM_NETWORKS] = {
-  { "TheMandalorian",  "6302201111" },
+  //{ "TheMandalorian",  "6302201111" },
   //{"2WIRE543", "0058239804"},
   //{ "TheMandaloriKen", "asdf12346302201111" },
-  //{ "Kajeet SmartSpot 9E7F", "smartspot4033" },
+  {"Kajeet SmartSpot 9433", "smartspot2631" }
 };
 
 String pendingMessage = "";
@@ -537,8 +536,8 @@ void setupWebServer() {
         return;
       }
 
-      if (doc.containsKey("direction")) {
-        String direction = doc["direction"];
+      if (doc["direction"].is<const char*>()) {
+        String direction = doc["direction"].as<String>();
 
         if (direction == "left") {
           Serial.println("Left Button - rotate left");          
@@ -576,8 +575,8 @@ void setupWebServer() {
         }        
       }
 
-      if (doc.containsKey("action")) {
-        String action = doc["action"];
+      if (doc["action"].is<const char*>()) {
+        String action = doc["action"].as<String>();
         if (action == "start"){
           animationRunning = true;
           leftMotor256=150;
@@ -594,7 +593,7 @@ void setupWebServer() {
         }
       }
 
-      StaticJsonDocument<256> response;
+      JsonDocument response;
       response["horiz"] = horizontalMenu[horizontalIndex];
       response["vert"]  = verticalMenus[horizontalIndex][verticalIndex];
 
