@@ -23,8 +23,8 @@ SCMD myMotorDriver; //This creates the main object of one motor driver and conne
 
 #define LEFT_DIR_FW   0
 #define LEFT_DIR_RV   1
-#define RIGHT_DIR_FW  0
-#define RIGHT_DIR_RV  1
+#define RIGHT_DIR_FW  1
+#define RIGHT_DIR_RV  0
 
 #define LEFT_MOTOR 1
 #define RIGHT_MOTOR 0
@@ -48,9 +48,9 @@ struct WifiCredential {
 
 WifiCredential wifiList[NUM_NETWORKS] = {
   //{ "TheMandalorian",  "6302201111" },
-  //{"2WIRE543", "0058239804"},
+  {"2WIRE543", "0058239804"}
   //{ "TheMandaloriKen", "asdf12346302201111" },
-  {"Kajeet SmartSpot 9433", "smartspot2631" }
+  //{"Kajeet SmartSpot 9433", "smartspot2631" }
 };
 
 String pendingMessage = "";
