@@ -8,7 +8,7 @@ namespace {
 
 BoardDisplay tft;
 
-enum class Screen : uint8_t { Splash, Home, Diagnostics };
+enum class Screen : uint8_t { Splash, Home, Diagnostics, Calibrate };
 enum class RunState : uint8_t { Idle, Running };
 
 Screen g_screen = Screen::Splash;
@@ -34,15 +34,26 @@ constexpr uint16_t COL_IDLE   = panelColor(0xFE60);
 
 struct HitRect {
   int16_t x, y, w, h;
-  bool contains(int16_t px, int16_t py) const {
-    return px >= x && px < x + w && py >= y && py < y + h;
+  bool contains(int16_t px, int16_t py, int16_t pad = 6) const {
+    return px >= x - pad && px < x + w + pad && py >= y - pad && py < y + h + pad;
   }
 };
 
-HitRect g_btnStart{16, 120, 100, 56};
-HitRect g_btnStop{124, 120, 100, 56};
-HitRect g_btnDiag{16, 200, 208, 48};
+HitRect g_btnStart{16, 112, 100, 48};
+HitRect g_btnStop{124, 112, 100, 48};
+HitRect g_btnDiag{16, 168, 208, 44};
+HitRect g_btnCal{16, 220, 208, 48};
 HitRect g_btnBack{16, 260, 208, 40};
+HitRect g_btnDone{16, 260, 208, 40};
+bool g_pressConsumed = false;
+int16_t g_lastTx = -1;
+int16_t g_lastTy = -1;
+
+constexpr int GRID_N = 8;
+constexpr int GRID_CELL = 24;
+constexpr int GRID_GAP = 4;
+constexpr int GRID_RADIUS = 4;
+constexpr int GRID_PX = GRID_N * GRID_CELL + (GRID_N - 1) * GRID_GAP;
 
 void drawButton(const HitRect& r, uint16_t fill, const char* label,
                 uint16_t labelColor = COL_TEXT) {
@@ -78,6 +89,7 @@ void drawHome() {
   drawButton(g_btnStart, COL_START, "START", panelColor(0x0000));
   drawButton(g_btnStop, COL_STOP, "STOP", COL_TEXT);
   drawButton(g_btnDiag, COL_PANEL, "DIAGNOSTICS", COL_ACCENT);
+  drawButton(g_btnCal, COL_PANEL, "CALIBRATE", COL_ACCENT);
 }
 
 float readBatteryVolts() {
@@ -144,6 +156,22 @@ void drawDiagnostics() {
   drawButton(g_btnBack, COL_PANEL, "BACK", COL_ACCENT);
 }
 
+void drawCalibrate() {
+  tft.fillScreen(COL_BG);
+
+  const int16_t gx = (LCD_WIDTH - GRID_PX) / 2;
+  const int16_t gy = 20;
+  for (int row = 0; row < GRID_N; ++row) {
+    for (int col = 0; col < GRID_N; ++col) {
+      const int16_t x = gx + col * (GRID_CELL + GRID_GAP);
+      const int16_t y = gy + row * (GRID_CELL + GRID_GAP);
+      tft.drawRoundRect(x, y, GRID_CELL, GRID_CELL, GRID_RADIUS, COL_MUTED);
+    }
+  }
+
+  drawButton(g_btnDone, COL_PANEL, "DONE", COL_ACCENT);
+}
+
 void drawSplash() {
   tft.fillScreen(COL_BG);
   tft.setTextDatum(middle_center);
@@ -166,6 +194,8 @@ void showScreen(Screen s) {
     drawSplash();
   } else if (s == Screen::Home) {
     drawHome();
+  } else if (s == Screen::Calibrate) {
+    drawCalibrate();
   } else {
     g_diagRefreshMs = 0;
     drawDiagnostics();
@@ -210,20 +240,43 @@ void onStop() {
   drawHome();
 }
 
-void handleTouchPress(int16_t x, int16_t y) {
+bool handleTouchPress(int16_t x, int16_t y) {
+  Serial.printf("[touch] %d,%d screen=%u\n", x, y,
+                static_cast<unsigned>(g_screen));
+
   if (g_screen == Screen::Home) {
     if (g_btnStart.contains(x, y)) {
       onStart();
-    } else if (g_btnStop.contains(x, y)) {
+      return true;
+    }
+    if (g_btnStop.contains(x, y)) {
       onStop();
-    } else if (g_btnDiag.contains(x, y)) {
+      return true;
+    }
+    if (g_btnDiag.contains(x, y)) {
       showScreen(Screen::Diagnostics);
+      return true;
+    }
+    // Whole strip under Diagnostics counts as Calibrate — the FT6336 often
+    // reports Y a little high, or drops contacts near the panel edge.
+    if (x >= 10 && x < LCD_WIDTH - 10 && y >= g_btnDiag.y + g_btnDiag.h) {
+      Serial.println("[sumo] CALIBRATE");
+      showScreen(Screen::Calibrate);
+      return true;
     }
   } else if (g_screen == Screen::Diagnostics) {
     if (g_btnBack.contains(x, y)) {
       showScreen(Screen::Home);
+      return true;
+    }
+  } else if (g_screen == Screen::Calibrate) {
+    if (g_btnDone.contains(x, y) ||
+        (x >= 10 && x < LCD_WIDTH - 10 && y >= g_btnDone.y - 8)) {
+      showScreen(Screen::Home);
+      return true;
     }
   }
+  return false;
 }
 
 }  // namespace
@@ -262,8 +315,17 @@ void loop() {
   lgfx::touch_point_t tp;
   const bool touching = tft.getTouch(&tp) > 0;
 
-  if (touching && !g_wasTouching) {
-    handleTouchPress(tp.x, tp.y);
+  if (touching) {
+    const bool moved = (tp.x != g_lastTx) || (tp.y != g_lastTy);
+    if (!g_wasTouching || (!g_pressConsumed && moved)) {
+      g_pressConsumed = handleTouchPress(tp.x, tp.y);
+    }
+    g_lastTx = tp.x;
+    g_lastTy = tp.y;
+  } else {
+    g_pressConsumed = false;
+    g_lastTx = -1;
+    g_lastTy = -1;
   }
   g_wasTouching = touching;
 
