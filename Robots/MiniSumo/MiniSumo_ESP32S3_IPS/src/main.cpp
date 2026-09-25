@@ -27,10 +27,12 @@ constexpr uint16_t COL_BG     = panelColor(0x1082);  // dark slate
 constexpr uint16_t COL_PANEL  = panelColor(0x2124);
 constexpr uint16_t COL_TEXT   = panelColor(0xFFFF);
 constexpr uint16_t COL_MUTED  = panelColor(0x8410);
-constexpr uint16_t COL_START  = panelColor(0x07E0);
-constexpr uint16_t COL_STOP   = panelColor(0xF800);
-constexpr uint16_t COL_ACCENT = panelColor(0x05FF);
-constexpr uint16_t COL_IDLE   = panelColor(0xFE60);
+constexpr uint16_t COL_START    = panelColor(0x07E0);
+constexpr uint16_t COL_STOP     = panelColor(0xF800);
+constexpr uint16_t COL_OPPONENT = panelColor(0x07E0);
+constexpr uint16_t COL_EDGE     = panelColor(0xF800);
+constexpr uint16_t COL_ACCENT   = panelColor(0x05FF);
+constexpr uint16_t COL_IDLE     = panelColor(0xFE60);
 
 struct HitRect {
   int16_t x, y, w, h;
@@ -165,6 +167,13 @@ void drawCalibrate() {
     for (int col = 0; col < GRID_N; ++col) {
       const int16_t x = gx + col * (GRID_CELL + GRID_GAP);
       const int16_t y = gy + row * (GRID_CELL + GRID_GAP);
+      uint16_t fill = COL_BG;
+      if (row < 2) {
+        fill = COL_OPPONENT;
+      } else if (row == GRID_N - 1) {
+        fill = COL_EDGE;
+      }
+      tft.fillRoundRect(x, y, GRID_CELL, GRID_CELL, GRID_RADIUS, fill);
       tft.drawRoundRect(x, y, GRID_CELL, GRID_CELL, GRID_RADIUS, COL_MUTED);
     }
   }
