@@ -264,6 +264,13 @@ bool handleTouchPress(int16_t x, int16_t y) {
       showScreen(Screen::Calibrate);
       return true;
     }
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%d,%d", x, y);
+    tft.fillRect(0, 42, LCD_WIDTH, 14, COL_BG);
+    tft.setTextDatum(top_center);
+    tft.setTextColor(COL_MUTED);
+    tft.setTextSize(1);
+    tft.drawString(buf, LCD_WIDTH / 2, 44);
   } else if (g_screen == Screen::Diagnostics) {
     if (g_btnBack.contains(x, y)) {
       showScreen(Screen::Home);
@@ -312,16 +319,17 @@ void loop() {
     return;
   }
 
-  lgfx::touch_point_t tp;
-  const bool touching = tft.getTouch(&tp) > 0;
+  int16_t tx = 0;
+  int16_t ty = 0;
+  const bool touching = tft.readTouch(&tx, &ty);
 
   if (touching) {
-    const bool moved = (tp.x != g_lastTx) || (tp.y != g_lastTy);
+    const bool moved = (tx != g_lastTx) || (ty != g_lastTy);
     if (!g_wasTouching || (!g_pressConsumed && moved)) {
-      g_pressConsumed = handleTouchPress(tp.x, tp.y);
+      g_pressConsumed = handleTouchPress(tx, ty);
     }
-    g_lastTx = tp.x;
-    g_lastTy = tp.y;
+    g_lastTx = tx;
+    g_lastTy = ty;
   } else {
     g_pressConsumed = false;
     g_lastTx = -1;
