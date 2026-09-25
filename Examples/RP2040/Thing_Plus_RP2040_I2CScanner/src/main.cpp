@@ -10,10 +10,9 @@
 
 #include <Wire.h>
 
-TwoWire Wire1(3,4); //Intialize Wire1 class (SDA, SCL)
-
 void setup()
 {
+  // Wire1 is the Qwiic I2C bus on Thing Plus RP2040 (Earle Philhower core)
   Wire1.begin();
 
   Serial.begin(115200);

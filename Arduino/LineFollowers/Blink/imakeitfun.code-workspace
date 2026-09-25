@@ -1,0 +1,23 @@
+{
+	"folders": [
+		{
+			"path": "../../../../React/imakeitfun"
+		},
+		{
+			"name": "test",
+			"path": "../../../test"
+		},
+		{
+			"name": "LineFollower",
+			"path": "../../../LineFollower"
+		},
+		{
+			"path": "../HUSKYLENS_LineFollower"
+		},
+		{
+			"name": "Blink",
+			"path": "."
+		}
+	],
+	"settings": {}
+}

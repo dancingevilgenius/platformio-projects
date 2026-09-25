@@ -12,7 +12,7 @@
 #define HOLD_MS 1000
 #define RGB_PIN 16
 #define NUM_LEDS 4
-#define RGB_BRIGHTNESS 20
+#define RGB_BRIGHTNESS 20 
 
 struct Motor {
   const char *name;

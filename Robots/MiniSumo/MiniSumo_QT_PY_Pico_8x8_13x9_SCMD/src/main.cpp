@@ -31,8 +31,8 @@ SCMD myMotorDriver; //This creates the main object of one motor driver and conne
 int leftMotor256=0;
 int rightMotor256=0;
 #define RIGHT_FW_FACTOR   1.0f
-#define LEFT_FW_FACTOR    0.94f
-#define RIGHT_RV_FACTOR   0.94f
+#define LEFT_FW_FACTOR    1.0f
+#define RIGHT_RV_FACTOR   1.0f
 #define LEFT_RV_FACTOR    1.0f
 
 

@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "../../../.."
+		},
+		{
+			"name": "Thing_Plus_RP2040_I2CScanner",
+			"path": "../../../RP2040/Thing_Plus_RP2040_I2CScanner"
+		}
+	],
+	"settings": {}
+}
