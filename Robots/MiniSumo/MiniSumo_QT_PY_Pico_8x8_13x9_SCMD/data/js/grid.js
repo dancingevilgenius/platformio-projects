@@ -156,6 +156,14 @@ function sendCommand(cmd) {
     }
 }
 
+function runHealthChecks() {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send("HEALTHCHECK");
+    } else {
+        showSnackbar("WebSocket not connected", "warning");
+    }
+}
+
 // --- UI Controls (RUN / FPS / MODE) ---
 function setupControls() {
     const btnRun = document.getElementById("btnRun");
@@ -206,6 +214,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("settingsBtn").onclick = openSettings;
     document.getElementById("settingsArrow").onclick = closeSettings;
     document.getElementById("settingsClose").onclick = closeSettings;
+    document.getElementById("healthCheckBtn").onclick = runHealthChecks;
 
     // Initialize PKT display on load
     const modeSelect = document.getElementById("modeSelect");

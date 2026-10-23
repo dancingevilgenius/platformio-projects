@@ -96,6 +96,9 @@ select {
 
 .fps-row input[type="range"] { width: 180px; }
 
+.fps-row select { margin-bottom: 0; }
+
+#settingsPopup #healthCheckBtn,
 #settingsClose { margin-top: 20px; }
 
 .status-row {
