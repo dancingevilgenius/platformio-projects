@@ -200,6 +200,13 @@ document.addEventListener("DOMContentLoaded", () => {
         };
     }
 
+    const settingsPopup = document.getElementById("settingsPopup");
+    const openSettings = () => { settingsPopup.hidden = false; };
+    const closeSettings = () => { settingsPopup.hidden = true; };
+    document.getElementById("settingsBtn").onclick = openSettings;
+    document.getElementById("settingsArrow").onclick = closeSettings;
+    document.getElementById("settingsClose").onclick = closeSettings;
+
     // Initialize PKT display on load
     const modeSelect = document.getElementById("modeSelect");
     const pkt = (modeSelect.value === "0") ? 256 : 8;
