@@ -21,19 +21,21 @@
 // Sparkfun QWIIC Serial Controlled Motor Driver 
 SCMD myMotorDriver; //This creates the main object of one motor driver and connected peripherals.
 
-#define LEFT_DIR_FW   0
-#define LEFT_DIR_RV   1
-#define RIGHT_DIR_FW  1
-#define RIGHT_DIR_RV  0
+uint8_t LEFT_DIR_FW  = 0;
+uint8_t LEFT_DIR_RV  = 1;
+uint8_t RIGHT_DIR_FW = 0;
+uint8_t RIGHT_DIR_RV = 1;
 
-#define LEFT_MOTOR 1
-#define RIGHT_MOTOR 0
-int leftMotor256=0;
-int rightMotor256=0;
-#define RIGHT_FW_FACTOR   1.0f
-#define LEFT_FW_FACTOR    1.0f
-#define RIGHT_RV_FACTOR   1.0f
-#define LEFT_RV_FACTOR    1.0f
+uint8_t LEFT_MOTOR  = 1;
+uint8_t RIGHT_MOTOR = 0;
+int leftMotor256 = 0;
+int rightMotor256 = 0;
+float RIGHT_FW_FACTOR = 1.0f;
+float LEFT_FW_FACTOR  = 1.0f;
+float RIGHT_RV_FACTOR = 1.0f;
+float LEFT_RV_FACTOR  = 1.0f;
+bool leftMotorInvert  = true;
+bool rightMotorInvert = false;
 
 
 // ------------------------------------------------------------
@@ -44,14 +46,19 @@ struct WifiCredential {
   const char* password;
 };
 
-#define NUM_NETWORKS 1
+#define NUM_NETWORKS 3
 
 WifiCredential wifiList[NUM_NETWORKS] = {
-  //{ "TheMandalorian",  "6302201111" },
-  {"2WIRE543", "0058239804"}
+  //{ "RobotStormClout",  "6302201111" },
+  { "RobotStormCloud",  "6302201111" },
+  { "2WIRE543", "0058239804" },
+  { "TheMandaloriKen", "asdf12346302201111" },
   //{ "TheMandaloriKen", "asdf12346302201111" },
   //{"Kajeet SmartSpot 9433", "smartspot2631" }
 };
+
+String lastGoodSsid;
+String lastGoodPassword;
 
 String pendingMessage = "";
 String pendingSeverity = "info";
@@ -69,9 +76,9 @@ wl_status_t cachedStatus = WL_DISCONNECTED;
 // ------------------------------------------------------------
 Adafruit_IS31FL3741_QT ledmatrix;
 
-#define X_OFFSET 2
-#define INVALID_VAL 4000
-#define MAX_DIST 570
+int X_OFFSET = 2;
+int INVALID_VAL = 4000;
+int MAX_DIST = 570;
 
 // 8 rows × 10 columns = 80 RGB cells
 uint32_t colorGrid[8][8] = {0};
@@ -105,6 +112,15 @@ int testAnimCycles = 0;
 
 unsigned long INTERVAL_ANIMATION = 100;       // default 10 FPS
 unsigned long INTERVAL_CLIENT_CLEANUP = 5000; // 5 seconds
+
+enum CalibratePhase { CALIB_IDLE, CALIB_FORWARD, CALIB_REVERSE };
+CalibratePhase calibPhase = CALIB_IDLE;
+unsigned long calibPhaseStart = 0;
+bool calibUseLeft = false;
+bool calibUseRight = false;
+const char* calibDoneMessage = "CALIBRATE_DONE";
+static const int CALIB_POWER = 64; // ~25% of 255
+static const unsigned long CALIB_PHASE_MS = 3000;
 
 enum SendMode { MODE_FULL, MODE_BITMASK };
 SendMode sendMode = MODE_FULL;
@@ -171,60 +187,246 @@ bool loadHTMLToPSRAM(const char* filename) {
   return true;
 }
 
+static const char* SETTINGS_PATH = "/minisumo_settings.json";
+
+void saveMiniSumoSettings() {
+  JsonDocument doc;
+  JsonObject left = doc["motors"]["left"].to<JsonObject>();
+  left["channel"] = LEFT_MOTOR;
+  left["dirFw"] = LEFT_DIR_FW;
+  left["dirRv"] = LEFT_DIR_RV;
+  left["fwFactor"] = LEFT_FW_FACTOR;
+  left["rvFactor"] = LEFT_RV_FACTOR;
+  left["invert"] = leftMotorInvert;
+
+  JsonObject right = doc["motors"]["right"].to<JsonObject>();
+  right["channel"] = RIGHT_MOTOR;
+  right["dirFw"] = RIGHT_DIR_FW;
+  right["dirRv"] = RIGHT_DIR_RV;
+  right["fwFactor"] = RIGHT_FW_FACTOR;
+  right["rvFactor"] = RIGHT_RV_FACTOR;
+  right["invert"] = rightMotorInvert;
+
+  JsonObject lidar = doc["lidar"].to<JsonObject>();
+  lidar["xOffset"] = X_OFFSET;
+  lidar["invalidVal"] = INVALID_VAL;
+  lidar["maxDist"] = MAX_DIST;
+
+  JsonObject lastGood = doc["lastGoodConnection"].to<JsonObject>();
+  lastGood["ssid"] = lastGoodSsid;
+  lastGood["password"] = lastGoodPassword;
+
+  File file = LittleFS.open(SETTINGS_PATH, "w");
+  if (!file) {
+    Serial.println("ERROR: Could not write settings file");
+    return;
+  }
+  serializeJsonPretty(doc, file);
+  file.close();
+  Serial.printf("Saved %s\n", SETTINGS_PATH);
+}
+
+static void applyMotorSettings(JsonObjectConst motor, uint8_t& channel, uint8_t& dirFw,
+                               uint8_t& dirRv, float& fwFactor, float& rvFactor, bool& invert) {
+  channel = motor["channel"] | channel;
+  dirFw = motor["dirFw"] | dirFw;
+  dirRv = motor["dirRv"] | dirRv;
+  fwFactor = motor["fwFactor"] | fwFactor;
+  rvFactor = motor["rvFactor"] | rvFactor;
+  invert = motor["invert"] | invert;
+}
+
+void loadMiniSumoSettings() {
+  if (!LittleFS.exists(SETTINGS_PATH)) {
+    Serial.println("Settings file missing; writing defaults");
+    saveMiniSumoSettings();
+    return;
+  }
+
+  File file = LittleFS.open(SETTINGS_PATH, "r");
+  if (!file) {
+    Serial.println("ERROR: Failed to open settings file");
+    return;
+  }
+
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, file);
+  file.close();
+  if (err) {
+    Serial.printf("ERROR: Settings JSON parse failed: %s\n", err.c_str());
+    return;
+  }
+
+  if (doc["motors"]["left"].is<JsonObject>()) {
+    applyMotorSettings(doc["motors"]["left"].as<JsonObjectConst>(),
+                       LEFT_MOTOR, LEFT_DIR_FW, LEFT_DIR_RV,
+                       LEFT_FW_FACTOR, LEFT_RV_FACTOR, leftMotorInvert);
+  }
+  if (doc["motors"]["right"].is<JsonObject>()) {
+    applyMotorSettings(doc["motors"]["right"].as<JsonObjectConst>(),
+                       RIGHT_MOTOR, RIGHT_DIR_FW, RIGHT_DIR_RV,
+                       RIGHT_FW_FACTOR, RIGHT_RV_FACTOR, rightMotorInvert);
+  }
+  if (doc["lidar"].is<JsonObject>()) {
+    JsonObjectConst lidar = doc["lidar"].as<JsonObjectConst>();
+    X_OFFSET = lidar["xOffset"] | X_OFFSET;
+    INVALID_VAL = lidar["invalidVal"] | INVALID_VAL;
+    MAX_DIST = lidar["maxDist"] | MAX_DIST;
+  }
+  if (doc["lastGoodConnection"].is<JsonObject>()) {
+    JsonObjectConst lastGood = doc["lastGoodConnection"].as<JsonObjectConst>();
+    lastGoodSsid = lastGood["ssid"] | "";
+    lastGoodPassword = lastGood["password"] | "";
+  }
+
+  Serial.printf("Loaded %s\n", SETTINGS_PATH);
+  if (lastGoodSsid.length() > 0) {
+    Serial.print("lastGoodConnection SSID: ");
+    Serial.println(lastGoodSsid);
+  }
+}
+
+bool littleFsMounted = false;
+
+bool mountLittleFSAndLoadSettings() {
+  if (littleFsMounted) return true;
+  if (!LittleFS.begin()) {
+    Serial.println("LittleFS mount failed.");
+    return false;
+  }
+  littleFsMounted = true;
+  Serial.println("LittleFS mounted.");
+  loadMiniSumoSettings();
+  return true;
+}
+
 // ------------------------------------------------------------
 // WiFi rotation connect (new version) + cache
 // ------------------------------------------------------------
+static const int WIFI_TRIES_PER_NETWORK = 3;
+static const unsigned long WIFI_TRY_TIMEOUT_MS = 3000;
+static const unsigned long WIFI_POLL_MS = 250;
+
+bool tryWifiNetwork(const char* ssid, const char* password) {
+  if (!ssid || ssid[0] == '\0') return false;
+
+  for (int attempt = 1; attempt <= WIFI_TRIES_PER_NETWORK; attempt++) {
+    Serial.print("  Attempt ");
+    Serial.print(attempt);
+    Serial.print("/");
+    Serial.print(WIFI_TRIES_PER_NETWORK);
+    Serial.println(" (3 seconds)...");
+
+    WiFi.disconnect();
+    delay(100);
+    WiFi.begin(ssid, password);
+
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - start) < WIFI_TRY_TIMEOUT_MS) {
+      delay(WIFI_POLL_MS);
+      Serial.print(".");
+    }
+    Serial.println();
+
+    if (WiFi.status() == WL_CONNECTED) return true;
+
+    Serial.print("  Attempt ");
+    Serial.print(attempt);
+    Serial.print(" failed for ");
+    Serial.println(ssid);
+    WiFi.disconnect();
+  }
+
+  Serial.print(ssid);
+  Serial.println(" not found after 3 tries.");
+  return false;
+}
+
+void markWifiConnected(const String& ssid, const String& password, bool usedLastGood) {
+  WiFi.setAutoReconnect(true);
+  pendingMessage = String("Connected to ") + ssid;
+  pendingSeverity = "success";
+  cachedIp = WiFi.localIP();
+  cachedRssi = WiFi.RSSI();
+  cachedStatus = WL_CONNECTED;
+
+  if (usedLastGood) {
+    Serial.println("Successfully connected using lastGoodConnection");
+  } else {
+    Serial.print("Connected to ");
+    Serial.println(ssid);
+  }
+  Serial.print("IP address: ");
+  Serial.println(cachedIp);
+
+  const bool changed = lastGoodSsid != ssid || lastGoodPassword != password;
+  lastGoodSsid = ssid;
+  lastGoodPassword = password;
+  if (changed) {
+    saveMiniSumoSettings();
+  }
+}
+
 bool connectToWiFi() {
   Serial.println("Starting WiFi credential rotation...");
 
   cachedStatus = WL_DISCONNECTED;
-  cachedIp = IPAddress(0,0,0,0);
+  cachedIp = IPAddress(0, 0, 0, 0);
   cachedRssi = 0;
 
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(false);
+
+  if (lastGoodSsid.length() > 0) {
+    Serial.println();
+    Serial.print("Trying lastGoodConnection first: ");
+    Serial.println(lastGoodSsid);
+    if (tryWifiNetwork(lastGoodSsid.c_str(), lastGoodPassword.c_str())) {
+      markWifiConnected(lastGoodSsid.c_str(), lastGoodPassword.c_str(), true);
+      return true;
+    }
+    Serial.println("lastGoodConnection failed. Falling back to wifiList.");
+  }
+
   for (int i = 0; i < NUM_NETWORKS; i++) {
-    Serial.print("Trying SSID: ");
-    Serial.print(wifiList[i].ssid);
-
-    WiFi.setAutoReconnect(false);
-    WiFi.disconnect();
-    delay(500);
-    WiFi.mode(WIFI_STA);
-    delay(500);
-    WiFi.begin(wifiList[i].ssid, wifiList[i].password);
-    WiFi.setAutoReconnect(true);
-
-    int failCount = 0;
-    while (WiFi.status() != WL_CONNECTED && failCount < 20) {
-      delay(500);
-      Serial.print(".");
-      failCount++;
+    if (lastGoodSsid.length() > 0 && lastGoodSsid == wifiList[i].ssid) {
+      continue;
     }
 
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("\nConnected!");
-      pendingMessage = String("Connected to ") + wifiList[i].ssid;
-      pendingSeverity = "success";
+    Serial.println();
+    Serial.print("SSID ");
+    Serial.print(i + 1);
+    Serial.print("/");
+    Serial.print(NUM_NETWORKS);
+    Serial.print(": ");
+    Serial.println(wifiList[i].ssid);
 
-      cachedIp = WiFi.localIP();
-      cachedRssi = WiFi.RSSI();
-      cachedStatus = WL_CONNECTED;
-
-      Serial.print("IP address: ");
-      Serial.println(cachedIp);
+    if (tryWifiNetwork(wifiList[i].ssid, wifiList[i].password)) {
+      markWifiConnected(wifiList[i].ssid, wifiList[i].password, false);
       return true;
     }
 
-    Serial.println("\nFailed to connect. Moving to next SSID...");
+    Serial.println("Moving to next SSID.");
   }
 
   pendingMessage = "Failed to connect to any WiFi network";
   pendingSeverity = "error";
-
   cachedStatus = WL_DISCONNECTED;
-  cachedIp = IPAddress(0,0,0,0);
+  cachedIp = IPAddress(0, 0, 0, 0);
   cachedRssi = 0;
 
-  Serial.println("ERROR: Could not connect to ANY WiFi network.");
+  Serial.println();
+  Serial.println("===========================================");
+  Serial.println("ERROR: WiFi connection failed for all networks:");
+  if (lastGoodSsid.length() > 0) {
+    Serial.print("  - lastGoodConnection: ");
+    Serial.println(lastGoodSsid);
+  }
+  for (int i = 0; i < NUM_NETWORKS; i++) {
+    Serial.print("  - ");
+    Serial.println(wifiList[i].ssid);
+  }
+  Serial.println("===========================================");
   return false;
 }
 
@@ -337,6 +539,78 @@ void healthCheckLedMatrix();
 void healthCheckDFR8x8();
 void healthCheckWebServer();
 
+void stopCalibMotors() {
+  myMotorDriver.setDrive(LEFT_MOTOR, LEFT_DIR_FW, 0);
+  myMotorDriver.setDrive(RIGHT_MOTOR, RIGHT_DIR_FW, 0);
+}
+
+void applyCalibDrive(bool forward) {
+  if (calibUseLeft) {
+    const uint8_t dir = forward ? LEFT_DIR_FW : LEFT_DIR_RV;
+    const float factor = forward ? LEFT_FW_FACTOR : LEFT_RV_FACTOR;
+    myMotorDriver.setDrive(LEFT_MOTOR, dir, (int)(CALIB_POWER * factor));
+  } else {
+    myMotorDriver.setDrive(LEFT_MOTOR, LEFT_DIR_FW, 0);
+  }
+
+  if (calibUseRight) {
+    const uint8_t dir = forward ? RIGHT_DIR_FW : RIGHT_DIR_RV;
+    const float factor = forward ? RIGHT_FW_FACTOR : RIGHT_RV_FACTOR;
+    myMotorDriver.setDrive(RIGHT_MOTOR, dir, (int)(CALIB_POWER * factor));
+  } else {
+    myMotorDriver.setDrive(RIGHT_MOTOR, RIGHT_DIR_FW, 0);
+  }
+}
+
+void startCalibrate(bool useLeft, bool useRight, const char* label, const char* doneMessage) {
+  if (calibPhase != CALIB_IDLE) {
+    Serial.println("Calibration already running");
+    return;
+  }
+  calibUseLeft = useLeft;
+  calibUseRight = useRight;
+  calibDoneMessage = doneMessage;
+  calibPhase = CALIB_FORWARD;
+  calibPhaseStart = millis();
+  Serial.print(label);
+  Serial.println(": forward 25% for 3s");
+  applyCalibDrive(true);
+}
+
+void startCalibrateSensor() {
+  startCalibrate(true, true, "Calibrate Sensor", "CALIBRATE_SENSOR_DONE");
+}
+
+void startCalibrateDriveLeft() {
+  startCalibrate(true, false, "Drive Left Side", "CALIBRATE_DRIVE_DONE");
+}
+
+void startCalibrateDriveRight() {
+  startCalibrate(false, true, "Drive Right Side", "CALIBRATE_DRIVE_DONE");
+}
+
+void startCalibrateDriveBoth() {
+  startCalibrate(true, true, "Drive Both Sides", "CALIBRATE_DRIVE_DONE");
+}
+
+void loopCalibrate() {
+  if (calibPhase == CALIB_IDLE) return;
+  if (millis() - calibPhaseStart < CALIB_PHASE_MS) return;
+
+  if (calibPhase == CALIB_FORWARD) {
+    calibPhase = CALIB_REVERSE;
+    calibPhaseStart = millis();
+    Serial.println("Calibration: reverse 25% for 3s");
+    applyCalibDrive(false);
+    return;
+  }
+
+  stopCalibMotors();
+  calibPhase = CALIB_IDLE;
+  Serial.println("Calibration: done");
+  safeTextAll(calibDoneMessage);
+}
+
 void handleCommand(const String& msg, AsyncWebSocketClient* client) {
 
     if (msg == "TEST") {
@@ -378,8 +652,17 @@ void handleCommand(const String& msg, AsyncWebSocketClient* client) {
       safeTextAll(payload);
     }
   }
-  else if (msg == "CALIBRATE") {
-    Serial.println("CALIBRATE command received");
+  else if (msg == "CALIBRATE_DRIVE_LEFT") {
+    startCalibrateDriveLeft();
+  }
+  else if (msg == "CALIBRATE_DRIVE_RIGHT") {
+    startCalibrateDriveRight();
+  }
+  else if (msg == "CALIBRATE" || msg == "CALIBRATE_DRIVE" || msg == "CALIBRATE_DRIVE_BOTH") {
+    startCalibrateDriveBoth();
+  }
+  else if (msg == "CALIBRATE_SENSOR") {
+    startCalibrateSensor();
   }
   else if (msg == "HEALTHCHECK") {
     Serial.println("HEALTHCHECK command received");
@@ -399,11 +682,7 @@ void setupWebServer() {
   // ------------------------------------------------------------
   // 1. Mount LittleFS
   // ------------------------------------------------------------
-  if (!LittleFS.begin()) {
-    Serial.println("LittleFS mount failed.");
-  } else {
-    Serial.println("LittleFS mounted.");
-  }
+  mountLittleFSAndLoadSettings();
 
   // ------------------------------------------------------------
   // 2. Register WebSocket handler FIRST (critical)
@@ -474,17 +753,9 @@ void setupWebServer() {
   // 5. Define routes
   // ------------------------------------------------------------
 
-  // Root → DPad page (PSRAM)
+  // Root → Autonomous / grid page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (!htmlBuffer || htmlSize == 0) {
-      request->send(500, "text/plain", "HTML not loaded");
-      return;
-    }
-    AsyncWebServerResponse *response =
-      request->beginResponse(200, "text/html",
-                             (const uint8_t*)htmlBuffer, (size_t)htmlSize);
-    response->addHeader("Cache-Control", "no-cache");
-    request->send(response);
+    request->send(LittleFS, "/index_grid.html", "text/html");
   });
 
   // ---------------- DPAD PAGE ----------------
@@ -595,6 +866,18 @@ void setupWebServer() {
           myMotorDriver.setDrive( RIGHT_MOTOR, RIGHT_DIR_FW, (int)(0 * RIGHT_FW_FACTOR));
           Serial.println("Stop Button");
         }
+        if (action == "calibrateDriveLeft") {
+          startCalibrateDriveLeft();
+        }
+        if (action == "calibrateDriveRight") {
+          startCalibrateDriveRight();
+        }
+        if (action == "calibrateDrive" || action == "calibrateDriveBoth") {
+          startCalibrateDriveBoth();
+        }
+        if (action == "calibrateSensor") {
+          startCalibrateSensor();
+        }
       }
 
       JsonDocument response;
@@ -644,10 +927,10 @@ void setupQwiicMotorDriver(){
 
   //*****Set application settings and enable driver*****//
 
-  //Uncomment code for motor 1 inversion
   while ( myMotorDriver.busy() ); //Waits until the SCMD is available.
-  myMotorDriver.inversionMode(LEFT_MOTOR, 1); //invert motor 1
-  //myMotorDriver.inversionMode(RIGHT_MOTOR, 1); //invert motor 1
+  myMotorDriver.inversionMode(LEFT_MOTOR, leftMotorInvert ? 1 : 0);
+  while ( myMotorDriver.busy() );
+  myMotorDriver.inversionMode(RIGHT_MOTOR, rightMotorInvert ? 1 : 0);
 
   while ( myMotorDriver.busy() )
     ; // Do nothing until driver is available
@@ -678,6 +961,7 @@ void setup() {
 
   Serial.println("MiniSumo QT PY Pico LedMatrix and DFR8x8");
 
+  mountLittleFSAndLoadSettings();
   connectToWiFi();
   setupI2C();
   setupLedMatrix();
@@ -690,6 +974,7 @@ void loop() {
   loopMiniSumoOpponent();
   loopAnimation();
   loopClientCleanup();
+  loopCalibrate();
 
 
   delay(20);

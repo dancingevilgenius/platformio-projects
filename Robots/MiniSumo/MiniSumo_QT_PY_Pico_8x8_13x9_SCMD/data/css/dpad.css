@@ -99,7 +99,15 @@ select {
 .fps-row select { margin-bottom: 0; }
 
 #settingsPopup #healthCheckBtn,
-#settingsPopup #calibrateBtn { margin-top: 20px; }
+#settingsPopup #calibrateSelect { margin-top: 20px; }
+
+#settingsPopup #calibrateSelect {
+    width: 100%;
+    margin-bottom: 0;
+    background: #333;
+    color: #fff;
+    border: 1px solid #555;
+}
 
 .settings-divider {
     border: 0;

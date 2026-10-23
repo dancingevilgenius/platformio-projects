@@ -105,7 +105,13 @@
             </select>
         </div>
         <button type="button" id="healthCheckBtn" class="action-btn">Health Check</button>
-        <button type="button" id="calibrateBtn" class="action-btn">Calibrate</button>
+        <select id="calibrateSelect" aria-label="Calibration">
+            <option value="" selected>Choose Calibration</option>
+            <option value="driveLeft">Drive Left Side</option>
+            <option value="driveRight">Drive Right Side</option>
+            <option value="driveBoth">Drive both Sides</option>
+            <option value="sensor">Calibrate Sensor</option>
+        </select>
         <hr class="settings-divider">
         <button type="button" id="settingsClose" class="action-btn">Close</button>
     </div>

@@ -72,6 +72,17 @@ function connectWebSocket() {
             }
 
             // SNACK messages
+            if (event.data === "CALIBRATE_SENSOR_DONE" || event.data === "CALIBRATE_DRIVE_DONE") {
+                resetCalibrateSelect();
+                showSnackbar(
+                    event.data === "CALIBRATE_SENSOR_DONE"
+                        ? "Sensor calibration complete"
+                        : "Drive calibration complete",
+                    "success"
+                );
+                return;
+            }
+
             if (event.data.startsWith("SNACK:")) {
                 const parts = event.data.split(":");
                 const type = parts[1];
@@ -164,12 +175,33 @@ function runHealthChecks() {
     }
 }
 
-function runCalibrate() {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send("CALIBRATE");
-    } else {
-        showSnackbar("WebSocket not connected", "warning");
-    }
+function resetCalibrateSelect() {
+    const sel = document.getElementById("calibrateSelect");
+    if (!sel) return;
+    sel.disabled = false;
+    sel.value = "";
+}
+
+function runCalibrateChoice() {
+    const sel = document.getElementById("calibrateSelect");
+    if (!sel) return;
+    const choice = sel.value;
+    if (!choice) return;
+
+    const actions = {
+        driveLeft: "calibrateDriveLeft",
+        driveRight: "calibrateDriveRight",
+        driveBoth: "calibrateDriveBoth",
+        sensor: "calibrateSensor"
+    };
+    const action = actions[choice];
+    if (!action) return;
+
+    sel.disabled = true;
+    sendAction(action);
+    setTimeout(() => {
+        if (sel.disabled) resetCalibrateSelect();
+    }, 7000);
 }
 
 function sendAction(action) {
@@ -275,7 +307,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("settingsArrow").onclick = closeSettings;
     document.getElementById("settingsClose").onclick = closeSettings;
     document.getElementById("healthCheckBtn").onclick = runHealthChecks;
-    document.getElementById("calibrateBtn").onclick = runCalibrate;
+    document.getElementById("calibrateSelect").onchange = runCalibrateChoice;
     document.getElementById("btnStart").onclick = beginCountdown;
     document.getElementById("btnStop").onclick = stopMatch;
 

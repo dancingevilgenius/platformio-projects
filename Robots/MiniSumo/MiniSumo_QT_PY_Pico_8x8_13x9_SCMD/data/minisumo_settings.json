@@ -1,0 +1,29 @@
+{
+  "motors": {
+    "left": {
+      "channel": 1,
+      "dirFw": 0,
+      "dirRv": 1,
+      "fwFactor": 1.0,
+      "rvFactor": 1.0,
+      "invert": true
+    },
+    "right": {
+      "channel": 0,
+      "dirFw": 0,
+      "dirRv": 1,
+      "fwFactor": 1.0,
+      "rvFactor": 1.0,
+      "invert": false
+    }
+  },
+  "lidar": {
+    "xOffset": 2,
+    "invalidVal": 4000,
+    "maxDist": 570
+  },
+  "lastGoodConnection": {
+    "ssid": "",
+    "password": ""
+  }
+}
