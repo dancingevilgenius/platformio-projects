@@ -65,7 +65,21 @@
             <div class="grid-cell"></div><div class="grid-cell"></div><div class="grid-cell"></div><div class="grid-cell"></div>
 
         </div>
+        <div id="countdown" class="countdown-overlay" hidden>5</div>
     </div>
+</div>
+
+<div class="side-switch-row">
+    <span id="sideLeftLabel" class="side-label is-selected">Left</span>
+    <label class="switch">
+        <input type="checkbox" id="sideToggle" aria-label="Starting side">
+        <span class="switch-track"></span>
+    </label>
+    <span id="sideRightLabel" class="side-label">Right</span>
+</div>
+<div class="bottom-buttons match-buttons">
+    <button type="button" id="btnStart" class="action-btn">Start</button>
+    <button type="button" id="btnStop" class="action-btn" disabled>Stop</button>
 </div>
 
 <div id="settingsPopup" class="settings-overlay" hidden>
@@ -91,6 +105,8 @@
             </select>
         </div>
         <button type="button" id="healthCheckBtn" class="action-btn">Health Check</button>
+        <button type="button" id="calibrateBtn" class="action-btn">Calibrate</button>
+        <hr class="settings-divider">
         <button type="button" id="settingsClose" class="action-btn">Close</button>
     </div>
 </div>

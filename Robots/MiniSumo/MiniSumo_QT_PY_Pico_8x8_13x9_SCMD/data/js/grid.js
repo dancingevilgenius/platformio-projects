@@ -164,6 +164,66 @@ function runHealthChecks() {
     }
 }
 
+function runCalibrate() {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send("CALIBRATE");
+    } else {
+        showSnackbar("WebSocket not connected", "warning");
+    }
+}
+
+function sendAction(action) {
+    fetch("/controller", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: action })
+    }).catch(() => showSnackbar("Could not reach the robot", "error"));
+}
+
+let countdownTimer = null;
+
+function resetMatchButtons() {
+    const countdown = document.getElementById("countdown");
+    document.getElementById("btnStart").disabled = false;
+    document.getElementById("btnStop").disabled = true;
+    countdown.hidden = true;
+    countdown.textContent = "";
+}
+
+function beginCountdown() {
+    const countdown = document.getElementById("countdown");
+    const stopBtn = document.getElementById("btnStop");
+    if (countdownTimer) clearInterval(countdownTimer);
+
+    document.getElementById("btnStart").disabled = true;
+    stopBtn.disabled = true;
+
+    let remaining = 5;
+    countdown.hidden = false;
+    countdown.textContent = String(remaining);
+
+    countdownTimer = setInterval(() => {
+        remaining -= 1;
+        countdown.textContent = String(remaining);
+        if (remaining <= 0) {
+            clearInterval(countdownTimer);
+            countdownTimer = null;
+            countdown.hidden = true;
+            stopBtn.disabled = false;
+            sendAction("start");
+        }
+    }, 1000);
+}
+
+function stopMatch() {
+    if (countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+    }
+    sendAction("stop");
+    resetMatchButtons();
+}
+
 // --- UI Controls (RUN / FPS / MODE) ---
 function setupControls() {
     const btnRun = document.getElementById("btnRun");
@@ -215,6 +275,20 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("settingsArrow").onclick = closeSettings;
     document.getElementById("settingsClose").onclick = closeSettings;
     document.getElementById("healthCheckBtn").onclick = runHealthChecks;
+    document.getElementById("calibrateBtn").onclick = runCalibrate;
+    document.getElementById("btnStart").onclick = beginCountdown;
+    document.getElementById("btnStop").onclick = stopMatch;
+
+    const sideToggle = document.getElementById("sideToggle");
+    const sideLeftLabel = document.getElementById("sideLeftLabel");
+    const sideRightLabel = document.getElementById("sideRightLabel");
+    const updateSideLabels = () => {
+        const right = sideToggle.checked;
+        sideLeftLabel.classList.toggle("is-selected", !right);
+        sideRightLabel.classList.toggle("is-selected", right);
+    };
+    sideToggle.onchange = updateSideLabels;
+    updateSideLabels();
 
     // Initialize PKT display on load
     const modeSelect = document.getElementById("modeSelect");
