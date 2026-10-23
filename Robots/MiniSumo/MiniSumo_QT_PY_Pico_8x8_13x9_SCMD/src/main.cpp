@@ -378,6 +378,9 @@ void handleCommand(const String& msg, AsyncWebSocketClient* client) {
       safeTextAll(payload);
     }
   }
+  else if (msg == "CALIBRATE") {
+    Serial.println("CALIBRATE command received");
+  }
   else if (msg == "HEALTHCHECK") {
     Serial.println("HEALTHCHECK command received");
     healthCheckWifi();

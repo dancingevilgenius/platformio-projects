@@ -9,11 +9,186 @@ body {
 
 .center-column { margin-top: 20px; }
 
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 12px;
+}
+
 select {
     font-size: 20px;
     padding: 8px;
     border-radius: 8px;
     margin-bottom: 10px;
+}
+
+.gear-btn,
+.settings-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: none;
+    border-radius: 10px;
+    background: #333;
+    color: #fff;
+    cursor: pointer;
+}
+
+.gear-btn svg,
+.settings-arrow svg {
+    width: 26px;
+    height: 26px;
+}
+
+.gear-btn:active,
+.settings-arrow:active { background: #555; }
+
+.settings-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.72);
+}
+
+.settings-overlay[hidden] { display: none; }
+
+.settings-card {
+    position: relative;
+    width: min(92vw, 360px);
+    box-sizing: border-box;
+    padding: 56px 20px 20px;
+    background: #1c1c1c;
+    border: 1px solid #555;
+    border-radius: 14px;
+}
+
+.settings-card h2 {
+    margin: 0 0 8px;
+    font-size: 22px;
+    font-weight: 600;
+}
+
+.settings-arrow {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+}
+
+.settings-card .bottom-buttons { margin-top: 16px; }
+
+.fps-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 16px;
+    color: #fff;
+    font-size: 20px;
+}
+
+.fps-row input[type="range"] { width: 180px; }
+
+.fps-row select { margin-bottom: 0; }
+
+#settingsPopup #healthCheckBtn,
+#settingsPopup #calibrateBtn { margin-top: 20px; }
+
+.settings-divider {
+    border: 0;
+    border-top: 1px solid #555;
+    margin: 20px 0 0;
+}
+
+#settingsClose { margin-top: 16px; }
+
+.countdown-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 6px;
+    font-size: 220px;
+    font-weight: 700;
+    line-height: 1;
+    color: #fff;
+    pointer-events: none;
+}
+
+.countdown-overlay[hidden] { display: none; }
+
+.side-switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-top: 28px;
+    color: #fff;
+    font-size: 22px;
+}
+
+.side-label { color: #888; }
+
+.side-label.is-selected {
+    color: #fff;
+    font-weight: 700;
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 64px;
+    height: 34px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    margin: 0;
+}
+
+.switch-track {
+    position: absolute;
+    inset: 0;
+    background: #333;
+    border: 1px solid #555;
+    border-radius: 34px;
+    cursor: pointer;
+}
+
+.switch-track::after {
+    content: "";
+    position: absolute;
+    width: 26px;
+    height: 26px;
+    left: 3px;
+    top: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s ease;
+}
+
+.switch input:checked + .switch-track { background: #555; }
+
+.switch input:checked + .switch-track::after { transform: translateX(30px); }
+
+.match-buttons { margin-top: 16px; }
+
+.action-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
 }
 
 .status-row {
@@ -76,6 +251,7 @@ select {
 .grid-container { margin-top: 20px; }
 
 .grid-wrapper {
+    position: relative;
     display: inline-block;
     width: auto;
     max-width: none;
