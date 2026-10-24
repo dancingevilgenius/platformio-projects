@@ -22,7 +22,12 @@
     "invalidVal": 4000,
     "maxDist": 570,
     "edgeRedMinCm": 10,
-    "edgeYellowMinCm": 15
+    "edgeYellowMinCm": 15,
+    "opponentMaxCm": 57
+  },
+  "display": {
+    "mode": "full",
+    "sensors": "both"
   },
   "lastGoodConnection": {
     "ssid": "",

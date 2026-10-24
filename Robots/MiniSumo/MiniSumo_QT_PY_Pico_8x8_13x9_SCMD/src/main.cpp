@@ -81,6 +81,7 @@ int INVALID_VAL = 4000;
 int MAX_DIST = 570;
 int edgeRedMinCm = 10;     // bottom row (y = 7)
 int edgeYellowMinCm = 15;  // next row up (y = 6)
+int opponentMaxCm = 57;    // green rows, y = 0..4
 
 // 8 rows × 10 columns = 80 RGB cells
 uint32_t colorGrid[8][8] = {0};
@@ -135,6 +136,12 @@ static bool rowIsProcessed(uint8_t y) {
   if (sensorView == SENSORS_EDGE) return y == 6 || y == 7;
   if (sensorView == SENSORS_OPPONENT) return y <= 4;
   return true;
+}
+
+static const char* sensorViewName() {
+  if (sensorView == SENSORS_EDGE) return "edge";
+  if (sensorView == SENSORS_OPPONENT) return "opponent";
+  return "both";
 }
 
 // ------------------------------------------------------------
@@ -200,6 +207,27 @@ bool loadHTMLToPSRAM(const char* filename) {
 }
 
 static const char* SETTINGS_PATH = "/minisumo_settings.json";
+static String wsCommand;
+
+static int clampCm(int cm, int lo, int hi) {
+  if (cm < lo) return lo;
+  if (cm > hi) return hi;
+  return cm;
+}
+
+static void applyModeString(String m) {
+  m.trim();
+  m.toLowerCase();
+  sendMode = (m.startsWith("1") || m.startsWith("bit")) ? MODE_BITMASK : MODE_FULL;
+}
+
+static void applySensorString(String view) {
+  view.trim();
+  view.toLowerCase();
+  if (view.startsWith("edge")) sensorView = SENSORS_EDGE;
+  else if (view.startsWith("opp")) sensorView = SENSORS_OPPONENT;
+  else sensorView = SENSORS_BOTH;
+}
 
 void saveMiniSumoSettings() {
   JsonDocument doc;
@@ -225,10 +253,20 @@ void saveMiniSumoSettings() {
   lidar["maxDist"] = MAX_DIST;
   lidar["edgeRedMinCm"] = edgeRedMinCm;
   lidar["edgeYellowMinCm"] = edgeYellowMinCm;
+  lidar["opponentMaxCm"] = opponentMaxCm;
+
+  JsonObject display = doc["display"].to<JsonObject>();
+  display["mode"] = (sendMode == MODE_BITMASK) ? "bitmask" : "full";
+  display["sensors"] = sensorViewName();
 
   JsonObject lastGood = doc["lastGoodConnection"].to<JsonObject>();
   lastGood["ssid"] = lastGoodSsid;
   lastGood["password"] = lastGoodPassword;
+
+  if (doc.overflowed()) {
+    Serial.println("ERROR: Settings JSON document overflowed");
+    return;
+  }
 
   File file = LittleFS.open(SETTINGS_PATH, "w");
   if (!file) {
@@ -236,8 +274,15 @@ void saveMiniSumoSettings() {
     return;
   }
   serializeJsonPretty(doc, file);
+  file.flush();
   file.close();
-  Serial.printf("Saved %s\n", SETTINGS_PATH);
+  Serial.printf("Saved %s mode=%s sensors=%s red=%d yellow=%d opponentMax=%d\n",
+                SETTINGS_PATH,
+                (sendMode == MODE_BITMASK) ? "bitmask" : "full",
+                sensorViewName(),
+                edgeRedMinCm,
+                edgeYellowMinCm,
+                opponentMaxCm);
 }
 
 static void applyMotorSettings(JsonObjectConst motor, uint8_t& channel, uint8_t& dirFw,
@@ -286,12 +331,14 @@ void loadMiniSumoSettings() {
     X_OFFSET = lidar["xOffset"] | X_OFFSET;
     INVALID_VAL = lidar["invalidVal"] | INVALID_VAL;
     MAX_DIST = lidar["maxDist"] | MAX_DIST;
-    edgeRedMinCm = lidar["edgeRedMinCm"] | edgeRedMinCm;
-    edgeYellowMinCm = lidar["edgeYellowMinCm"] | edgeYellowMinCm;
-    if (edgeRedMinCm < 10) edgeRedMinCm = 10;
-    if (edgeRedMinCm > 20) edgeRedMinCm = 20;
-    if (edgeYellowMinCm < 15) edgeYellowMinCm = 15;
-    if (edgeYellowMinCm > 30) edgeYellowMinCm = 30;
+    edgeRedMinCm = clampCm(lidar["edgeRedMinCm"] | edgeRedMinCm, 10, 20);
+    edgeYellowMinCm = clampCm(lidar["edgeYellowMinCm"] | edgeYellowMinCm, 15, 30);
+    opponentMaxCm = clampCm(lidar["opponentMaxCm"] | opponentMaxCm, 15, 75);
+  }
+  if (doc["display"].is<JsonObject>()) {
+    JsonObjectConst display = doc["display"].as<JsonObjectConst>();
+    applyModeString(display["mode"] | "full");
+    applySensorString(display["sensors"] | "both");
   }
   if (doc["lastGoodConnection"].is<JsonObject>()) {
     JsonObjectConst lastGood = doc["lastGoodConnection"].as<JsonObjectConst>();
@@ -658,37 +705,34 @@ void handleCommand(const String& msg, AsyncWebSocketClient* client) {
     Serial.println(fps);
   }
   else if (msg.startsWith("MODE:")) {
-    String m = msg.substring(5);
-    sendMode = (m == "BIT") ? MODE_BITMASK : MODE_FULL;
+    applyModeString(msg.substring(5));
+    saveMiniSumoSettings();
     Serial.print("sendMode:");
-    Serial.println(sendMode);
+    Serial.println(sendMode == MODE_BITMASK ? "bitmask" : "full");
   }
   else if (msg.startsWith("SENSORS:")) {
-    String view = msg.substring(8);
-    view.toLowerCase();
-    if (view == "edge") sensorView = SENSORS_EDGE;
-    else if (view == "opponent") sensorView = SENSORS_OPPONENT;
-    else sensorView = SENSORS_BOTH;
+    applySensorString(msg.substring(8));
+    saveMiniSumoSettings();
     Serial.print("sensorView:");
-    Serial.println(view);
+    Serial.println(sensorViewName());
   }
   else if (msg.startsWith("EDGE_RED_CM:")) {
-    int cm = msg.substring(12).toInt();
-    if (cm < 10) cm = 10;
-    if (cm > 20) cm = 20;
-    edgeRedMinCm = cm;
+    edgeRedMinCm = clampCm(msg.substring(msg.indexOf(':') + 1).toInt(), 10, 20);
     saveMiniSumoSettings();
     Serial.print("edgeRedMinCm:");
     Serial.println(edgeRedMinCm);
   }
-  else if (msg.startsWith("EDGE_YELLOW_CM:")) {
-    int cm = msg.substring(15).toInt();
-    if (cm < 15) cm = 15;
-    if (cm > 30) cm = 30;
-    edgeYellowMinCm = cm;
+  else if (msg.startsWith("EDGE_YELLOW_CM:") || msg.indexOf("YELLOW") >= 0) {
+    edgeYellowMinCm = clampCm(msg.substring(msg.indexOf(':') + 1).toInt(), 15, 30);
     saveMiniSumoSettings();
     Serial.print("edgeYellowMinCm:");
     Serial.println(edgeYellowMinCm);
+  }
+  else if (msg.startsWith("OPP_MAX_CM:")) {
+    opponentMaxCm = clampCm(msg.substring(msg.indexOf(':') + 1).toInt(), 15, 75);
+    saveMiniSumoSettings();
+    Serial.print("opponentMaxCm:");
+    Serial.println(opponentMaxCm);
   }
   else if (msg.startsWith("SNACK:")) {
     int p1 = msg.indexOf(':', 6);
@@ -747,7 +791,9 @@ void setupWebServer() {
           Serial.printf("WS: Client %u connected | IP: %s\n",
                         client->id(),
                         client->remoteIP().toString().c_str());
-          safeTextClient(client, String("EDGE_MIN:") + edgeRedMinCm + "," + edgeYellowMinCm);
+          safeTextClient(client, String("EDGE_MIN:") + edgeRedMinCm + "," + edgeYellowMinCm + "," + opponentMaxCm);
+          safeTextClient(client, String("MODE:") + (sendMode == MODE_BITMASK ? "1" : "0"));
+          safeTextClient(client, String("SENSORS:") + sensorViewName());
           return;
       }
 
@@ -757,10 +803,20 @@ void setupWebServer() {
       }
 
       if (type == WS_EVT_DATA) {
+          const bool textFrame = info->message_opcode == WS_TEXT || info->opcode == WS_TEXT;
+          if (!textFrame) return;
 
-          // Convert incoming data to string (works for text or binary)
-          String msg;
-          for (size_t i = 0; i < len; i++) msg += (char)data[i];
+          if (info->index == 0) wsCommand = "";
+          for (size_t i = 0; i < len; i++) {
+            char c = (char)data[i];
+            if (c != '\0') wsCommand += c;
+          }
+          const bool complete = info->final && (info->index + len) >= info->len;
+          if (!complete) return;
+
+          String msg = wsCommand;
+          wsCommand = "";
+          msg.trim();
 
           // Handle PING:<id> for latency measurement
           if (msg.startsWith("PING:")) {
@@ -774,10 +830,7 @@ void setupWebServer() {
               return;
           }
 
-          // Only process commands if this was a text frame
-          if (info->opcode == WS_TEXT) {
-              handleCommand(msg, client);
-          }
+          handleCommand(msg, client);
       }
   });
 
@@ -846,6 +899,51 @@ void setupWebServer() {
   server.on("/js/dpad.js", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(LittleFS, "/js/dpad.js", "application/javascript");
   });
+
+  server.on("/settings", HTTP_GET, [](AsyncWebServerRequest *request) {
+    JsonDocument doc;
+    doc["mode"] = (sendMode == MODE_BITMASK) ? "bitmask" : "full";
+    doc["sensors"] = sensorViewName();
+    doc["edgeRedMinCm"] = edgeRedMinCm;
+    doc["edgeYellowMinCm"] = edgeYellowMinCm;
+    doc["opponentMaxCm"] = opponentMaxCm;
+    String body;
+    serializeJson(doc, body);
+    request->send(200, "application/json", body);
+  });
+
+  server.on(
+    "/settings",
+    HTTP_POST,
+    [](AsyncWebServerRequest *request) {},
+    NULL,
+    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+      static String body;
+      if (index == 0) body = "";
+      for (size_t i = 0; i < len; i++) body += (char)data[i];
+      if (index + len < total) return;
+
+      JsonDocument doc;
+      if (deserializeJson(doc, body)) {
+        request->send(400, "application/json", "{\"error\":\"bad json\"}");
+        return;
+      }
+
+      if (!doc["mode"].isNull()) applyModeString(doc["mode"].as<String>());
+      if (!doc["sensors"].isNull()) applySensorString(doc["sensors"].as<String>());
+      if (!doc["edgeRedMinCm"].isNull()) {
+        edgeRedMinCm = clampCm(doc["edgeRedMinCm"].as<int>(), 10, 20);
+      }
+      if (!doc["edgeYellowMinCm"].isNull()) {
+        edgeYellowMinCm = clampCm(doc["edgeYellowMinCm"].as<int>(), 15, 30);
+      }
+      if (!doc["opponentMaxCm"].isNull()) {
+        opponentMaxCm = clampCm(doc["opponentMaxCm"].as<int>(), 15, 75);
+      }
+      saveMiniSumoSettings();
+      request->send(200, "application/json", "{\"ok\":true}");
+    }
+  );
 
   // ---------------- CONTROLLER ENDPOINT ----------------
   server.on(
@@ -1072,17 +1170,21 @@ void loopMiniSumoOpponent() {
         continue;
       }
 
-      if (d_mm == INVALID_VAL || d_mm > MAX_DIST) {
-        ledmatrix.drawPixel(x + X_OFFSET, y, 0);
-        colorGrid[y][x] = 0;
+      if (y <= 4) {
+        const int maxMm = opponentMaxCm * 10;
+        if (d_mm > 0 && d_mm <= maxMm) {
+          ledmatrix.drawPixel(x + X_OFFSET, y, ledmatrix.color565(0,255,0));
+          colorGrid[y][x] = 0x00FF00;
+        } else {
+          ledmatrix.drawPixel(x + X_OFFSET, y, 0);
+          colorGrid[y][x] = 0;
+        }
         continue;
       }
 
-      if (y <= 4) {
-        if (d_mm > 0) {
-          ledmatrix.drawPixel(x + X_OFFSET, y, ledmatrix.color565(0,255,0));
-          colorGrid[y][x] = 0x00FF00;
-        }
+      if (d_mm == INVALID_VAL || d_mm > MAX_DIST) {
+        ledmatrix.drawPixel(x + X_OFFSET, y, 0);
+        colorGrid[y][x] = 0;
         continue;
       }
 

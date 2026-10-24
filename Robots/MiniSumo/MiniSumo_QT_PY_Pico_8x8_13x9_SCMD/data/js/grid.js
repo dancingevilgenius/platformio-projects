@@ -69,8 +69,6 @@ function connectWebSocket() {
         socket.send("UA:" + navigator.userAgent);
         lastPingTime = performance.now();
         socket.send("PING");
-        const sensorSelect = document.getElementById("sensorSelect");
-        if (sensorSelect) applySensorView(sensorSelect.value, true);
         if (reconnectTimer) clearTimeout(reconnectTimer);
     };
 
@@ -104,10 +102,32 @@ function connectWebSocket() {
                 return;
             }
 
+            if (event.data.startsWith("MODE:")) {
+                const mode = event.data.substring(5);
+                const modeSelect = document.getElementById("modeSelect");
+                if (modeSelect) {
+                    modeSelect.value = (mode === "1" || mode === "bitmask" || mode === "bit") ? "1" : "0";
+                    const pkt = (modeSelect.value === "0") ? 256 : 8;
+                    document.getElementById("pkt").textContent = pad3(pkt);
+                }
+                return;
+            }
+
+            if (event.data.startsWith("SENSORS:")) {
+                const view = event.data.substring(8);
+                const sensorSelect = document.getElementById("sensorSelect");
+                if (sensorSelect && (view === "both" || view === "edge" || view === "opponent")) {
+                    sensorSelect.value = view;
+                    applySensorView(view, false);
+                }
+                return;
+            }
+
             if (event.data.startsWith("EDGE_MIN:")) {
                 const parts = event.data.substring(9).split(",");
                 setEdgeMinSelect("redMinSelect", parts[0]);
                 setEdgeMinSelect("yellowMinSelect", parts[1]);
+                if (parts.length > 2) setEdgeMinSelect("opponentMaxSelect", parts[2]);
                 return;
             }
 
@@ -220,6 +240,42 @@ function setEdgeMinSelect(id, cm) {
     }
 }
 
+let applyingSettings = false;
+
+function postSetting(fields) {
+    fetch("/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fields)
+    }).catch(() => showSnackbar("Could not save settings", "error"));
+}
+
+function applyLoadedSettings(data) {
+    applyingSettings = true;
+    const modeSelect = document.getElementById("modeSelect");
+    const sensorSelect = document.getElementById("sensorSelect");
+    if (modeSelect && data.mode) {
+        modeSelect.value = (data.mode === "bitmask" || data.mode === "1" || data.mode === "bit") ? "1" : "0";
+        const pkt = (modeSelect.value === "0") ? 256 : 8;
+        document.getElementById("pkt").textContent = pad3(pkt);
+    }
+    if (sensorSelect && (data.sensors === "both" || data.sensors === "edge" || data.sensors === "opponent")) {
+        sensorSelect.value = data.sensors;
+        applySensorView(data.sensors, false);
+    }
+    if (data.edgeRedMinCm != null) setEdgeMinSelect("redMinSelect", data.edgeRedMinCm);
+    if (data.edgeYellowMinCm != null) setEdgeMinSelect("yellowMinSelect", data.edgeYellowMinCm);
+    if (data.opponentMaxCm != null) setEdgeMinSelect("opponentMaxSelect", data.opponentMaxCm);
+    applyingSettings = false;
+}
+
+function loadSettings() {
+    fetch("/settings")
+        .then((res) => res.json())
+        .then(applyLoadedSettings)
+        .catch(() => {});
+}
+
 function sendCommand(cmd) {
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(cmd);
@@ -323,9 +379,11 @@ function setupControls() {
     const sensorSelect = document.getElementById("sensorSelect");
     const redMinSelect = document.getElementById("redMinSelect");
     const yellowMinSelect = document.getElementById("yellowMinSelect");
+    const opponentMaxSelect = document.getElementById("opponentMaxSelect");
 
     fillCmSelect(redMinSelect, 10, 20, 10);
     fillCmSelect(yellowMinSelect, 15, 30, 15);
+    fillCmSelect(opponentMaxSelect, 15, 75, 57);
 
     let running = true;
 
@@ -342,22 +400,32 @@ function setupControls() {
 
     // Mode dropdown updates PKT + backend
     modeSelect.onchange = () => {
-        sendCommand("MODE:" + modeSelect.value);
-
+        if (applyingSettings) return;
         const pkt = (modeSelect.value === "0") ? 256 : 8;
         document.getElementById("pkt").textContent = pad3(pkt);
+        postSetting({ mode: modeSelect.value === "1" ? "bitmask" : "full" });
     };
 
     sensorSelect.onchange = () => {
-        applySensorView(sensorSelect.value, true);
+        if (applyingSettings) return;
+        applySensorView(sensorSelect.value, false);
+        postSetting({ sensors: sensorSelect.value });
     };
 
     redMinSelect.onchange = () => {
-        sendCommand("EDGE_RED_CM:" + redMinSelect.value);
+        if (applyingSettings) return;
+        postSetting({ edgeRedMinCm: parseInt(redMinSelect.value, 10) });
     };
     yellowMinSelect.onchange = () => {
-        sendCommand("EDGE_YELLOW_CM:" + yellowMinSelect.value);
+        if (applyingSettings) return;
+        postSetting({ edgeYellowMinCm: parseInt(yellowMinSelect.value, 10) });
     };
+    opponentMaxSelect.onchange = () => {
+        if (applyingSettings) return;
+        postSetting({ opponentMaxCm: parseInt(opponentMaxSelect.value, 10) });
+    };
+
+    loadSettings();
 }
 
 // --- Mode dropdown (Grid <-> DPad) ---
