@@ -140,57 +140,57 @@ select {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 14px;
     margin-top: 28px;
     color: #fff;
     font-size: 22px;
 }
 
-.side-label { color: #888; }
-
-.side-label.is-selected {
-    color: #fff;
-    font-weight: 700;
-}
-
-.switch {
+.side-switch {
     position: relative;
-    display: inline-block;
-    width: 64px;
-    height: 34px;
-}
-
-.switch input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-    margin: 0;
-}
-
-.switch-track {
-    position: absolute;
-    inset: 0;
-    background: #333;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    width: min(92vw, 360px);
+    padding: 4px;
+    background: #222;
     border: 1px solid #555;
     border-radius: 34px;
-    cursor: pointer;
 }
 
-.switch-track::after {
-    content: "";
+.side-switch input {
     position: absolute;
-    width: 26px;
-    height: 26px;
-    left: 3px;
-    top: 3px;
-    background: #fff;
-    border-radius: 50%;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.side-knob {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 4px;
+    width: calc((100% - 8px) / 3);
+    background: #555;
+    border-radius: 30px;
     transition: transform 0.2s ease;
 }
 
-.switch input:checked + .switch-track { background: #555; }
+.side-switch label {
+    position: relative;
+    z-index: 1;
+    padding: 10px 0;
+    color: #888;
+    cursor: pointer;
+}
 
-.switch input:checked + .switch-track::after { transform: translateX(30px); }
+#sideLeft:checked ~ .side-knob { transform: translateX(0); }
+#sideCenter:checked ~ .side-knob { transform: translateX(100%); }
+#sideRight:checked ~ .side-knob { transform: translateX(200%); }
+
+#sideLeft:checked ~ label[for="sideLeft"],
+#sideCenter:checked ~ label[for="sideCenter"],
+#sideRight:checked ~ label[for="sideRight"] {
+    color: #fff;
+    font-weight: 700;
+}
 
 .match-buttons { margin-top: 16px; }
 

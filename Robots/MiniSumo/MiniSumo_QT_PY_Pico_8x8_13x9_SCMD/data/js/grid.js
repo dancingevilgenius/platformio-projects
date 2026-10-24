@@ -471,17 +471,6 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btnStart").onclick = beginCountdown;
     document.getElementById("btnStop").onclick = stopMatch;
 
-    const sideToggle = document.getElementById("sideToggle");
-    const sideLeftLabel = document.getElementById("sideLeftLabel");
-    const sideRightLabel = document.getElementById("sideRightLabel");
-    const updateSideLabels = () => {
-        const right = sideToggle.checked;
-        sideLeftLabel.classList.toggle("is-selected", !right);
-        sideRightLabel.classList.toggle("is-selected", right);
-    };
-    sideToggle.onchange = updateSideLabels;
-    updateSideLabels();
-
     // Initialize PKT display on load
     const modeSelect = document.getElementById("modeSelect");
     const pkt = (modeSelect.value === "0") ? 256 : 8;
