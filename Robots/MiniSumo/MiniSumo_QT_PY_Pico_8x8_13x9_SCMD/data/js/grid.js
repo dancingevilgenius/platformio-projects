@@ -330,11 +330,12 @@ function runCalibrateChoice() {
     }, 7000);
 }
 
-function sendAction(action) {
+function sendAction(action, extra) {
+    const body = Object.assign({ action: action }, extra || {});
     fetch("/controller", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: action })
+        body: JSON.stringify(body)
     }).catch(() => showSnackbar("Could not reach the robot", "error"));
 }
 
@@ -354,7 +355,9 @@ function beginCountdown() {
     if (countdownTimer) clearInterval(countdownTimer);
 
     document.getElementById("btnStart").disabled = true;
-    stopBtn.disabled = true;
+    stopBtn.disabled = false;
+    const sideInput = document.querySelector('input[name="startingSide"]:checked');
+    sendAction("start", { startingSide: sideInput ? sideInput.value : "center" });
 
     let remaining = 5;
     countdown.hidden = false;
@@ -367,8 +370,6 @@ function beginCountdown() {
             clearInterval(countdownTimer);
             countdownTimer = null;
             countdown.hidden = true;
-            stopBtn.disabled = false;
-            sendAction("start");
         }
     }, 1000);
 }

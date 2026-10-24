@@ -38,6 +38,49 @@ float LEFT_RV_FACTOR  = 1.0f;
 bool leftMotorInvert  = true;
 bool rightMotorInvert = false;
 
+// 8 sensor columns, x = 0..7. Left is 0..4. Right is 5..7.
+// Middle is the two center columns, used to recognize an opponent straight ahead.
+static const int COL_LEFT_LAST = 4;
+static const int COL_RIGHT_FIRST = 5;
+static const int COL_MIDDLE_FIRST = 3;
+static const int COL_MIDDLE_LAST = 4;
+static const int RED_OVERRIDE_MIN = 2;
+static const int FRONT_GREEN_MIN = 4;
+// Extra green hits on one side that unload the inside wheel. Past this, it reverses.
+static const int OPPONENT_TURN_SCALE = 8;
+// Fraction of full power taken off the inside wheel.
+// Yellow removes a quarter, a slight arc. Red removes 1.5x, so the inside wheel reverses.
+static const int YELLOW_TURN_NUM = 1;
+static const int YELLOW_TURN_DEN = 4;
+static const int RED_TURN_NUM = 3;
+static const int RED_TURN_DEN = 2;
+static const unsigned long MATCH_COUNTDOWN_MS = 5000;
+
+enum MatchPhase { MATCH_IDLE, MATCH_COUNTDOWN, MATCH_RUN };
+MatchPhase matchPhase = MATCH_IDLE;
+unsigned long countdownStartMs = 0;
+
+enum StartSide { START_CENTER, START_LEFT, START_RIGHT };
+StartSide startSide = START_CENTER;
+static const int SEARCH_POWER = (255 * 50) / 100;
+
+enum MatchDrive { DRIVE_STOP, DRIVE_FORWARD, DRIVE_TURN_LEFT, DRIVE_TURN_RIGHT, DRIVE_REVERSE };
+MatchDrive lastMatchDrive = DRIVE_STOP;
+
+struct RingSense {
+  int greenLeft;
+  int greenRight;
+  int greenMiddle;
+  int greenTotal;
+  int redLeft;
+  int redRight;
+  int redTotal;
+  int yellowLeft;
+  int yellowRight;
+  int yellowTotal;
+};
+RingSense ringSense;
+
 
 // ------------------------------------------------------------
 // WiFi Credential Rotation
@@ -223,11 +266,63 @@ static int fullMotorPower() {
   return (255 * motorPowerPercent) / 100;
 }
 
+static int clampSigned(int value) {
+  if (value > 255) return 255;
+  if (value < -255) return -255;
+  return value;
+}
+
+static int scaledSpeed(int magnitude, float factor) {
+  int speed = (int)(magnitude * factor);
+  if (speed < 0) speed = 0;
+  if (speed > 255) speed = 255;
+  return speed;
+}
+
+// Positive speed is forward. Negative speed is reverse.
+void driveSigned(int left, int right) {
+  left = clampSigned(left);
+  right = clampSigned(right);
+
+  if (left >= 0) {
+    myMotorDriver.setDrive(LEFT_MOTOR, LEFT_DIR_FW, scaledSpeed(left, LEFT_FW_FACTOR));
+  } else {
+    myMotorDriver.setDrive(LEFT_MOTOR, LEFT_DIR_RV, scaledSpeed(-left, LEFT_RV_FACTOR));
+  }
+
+  if (right >= 0) {
+    myMotorDriver.setDrive(RIGHT_MOTOR, RIGHT_DIR_FW, scaledSpeed(right, RIGHT_FW_FACTOR));
+  } else {
+    myMotorDriver.setDrive(RIGHT_MOTOR, RIGHT_DIR_RV, scaledSpeed(-right, RIGHT_RV_FACTOR));
+  }
+
+  leftMotor256 = left;
+  rightMotor256 = right;
+}
+
+void stopAllMotors() {
+  driveSigned(0, 0);
+}
+
+// Positive turn steers left (inside wheel slows, then reverses). Negative steers right.
+void driveArc(int signedTurn) {
+  const int power = fullMotorPower();
+  int turn = signedTurn;
+  const int limit = power * 2;
+  if (turn > limit) turn = limit;
+  if (turn < -limit) turn = -limit;
+
+  if (turn > 0) driveSigned(power - turn, power);
+  else if (turn < 0) driveSigned(power, power + turn);
+  else driveSigned(power, power);
+}
+
 void applyCalibDrive(bool forward);
 
 static void setMotorPowerPercent(int percent) {
   if (!validPowerPercent(percent)) percent = 25;
   motorPowerPercent = percent;
+  if (matchPhase != MATCH_IDLE) return;
   if (calibPhase != CALIB_IDLE) {
     applyCalibDrive(calibPhase == CALIB_FORWARD);
     return;
@@ -637,8 +732,7 @@ void healthCheckDFR8x8();
 void healthCheckWebServer();
 
 void stopCalibMotors() {
-  myMotorDriver.setDrive(LEFT_MOTOR, LEFT_DIR_FW, 0);
-  myMotorDriver.setDrive(RIGHT_MOTOR, RIGHT_DIR_FW, 0);
+  stopAllMotors();
 }
 
 void applyCalibDrive(bool forward) {
@@ -660,6 +754,10 @@ void applyCalibDrive(bool forward) {
 }
 
 void startCalibrate(bool useLeft, bool useRight, const char* label, const char* doneMessage) {
+  if (matchPhase != MATCH_IDLE) {
+    Serial.println("Calibration ignored while a match is active");
+    return;
+  }
   if (calibPhase != CALIB_IDLE) {
     Serial.println("Calibration already running");
     return;
@@ -692,7 +790,33 @@ void startCalibrateDriveBoth() {
   startCalibrate(true, true, "Drive Both Sides", "CALIBRATE_DRIVE_DONE");
 }
 
+void applyStartSide(const String& side) {
+  if (side == "left") startSide = START_LEFT;
+  else if (side == "right") startSide = START_RIGHT;
+  else startSide = START_CENTER;
+}
+
+void beginMatchCountdown() {
+  if (matchPhase != MATCH_IDLE) return;
+  if (calibPhase != CALIB_IDLE) calibPhase = CALIB_IDLE;
+  matchPhase = MATCH_COUNTDOWN;
+  countdownStartMs = millis();
+  lastMatchDrive = DRIVE_STOP;
+  stopAllMotors();
+  Serial.print("Start: 5 second countdown, side ");
+  Serial.println(startSide == START_LEFT ? "left" : startSide == START_RIGHT ? "right" : "center");
+}
+
+void endMatch() {
+  matchPhase = MATCH_IDLE;
+  if (calibPhase != CALIB_IDLE) calibPhase = CALIB_IDLE;
+  lastMatchDrive = DRIVE_STOP;
+  stopAllMotors();
+  Serial.println("Stop: motors off");
+}
+
 void loopCalibrate() {
+  if (matchPhase != MATCH_IDLE) return;
   if (calibPhase == CALIB_IDLE) return;
   if (millis() - calibPhaseStart < CALIB_PHASE_MS) return;
 
@@ -1044,17 +1168,16 @@ void setupWebServer() {
         String action = doc["action"].as<String>();
         if (action == "start"){
           animationRunning = true;
-          leftMotor256 = fullMotorPower();
-          rightMotor256 = fullMotorPower();
-          myMotorDriver.setDrive( LEFT_MOTOR, LEFT_DIR_FW,  (int)(leftMotor256 * LEFT_FW_FACTOR));
-          myMotorDriver.setDrive( RIGHT_MOTOR, RIGHT_DIR_FW, (int)(rightMotor256 * RIGHT_FW_FACTOR));
-          Serial.println("Start Button");
+          String side = "center";
+          if (doc["startingSide"].is<const char*>()) side = doc["startingSide"].as<String>();
+          side.trim();
+          side.toLowerCase();
+          applyStartSide(side);
+          beginMatchCountdown();
         }
         if (action == "stop") {
           animationRunning = false;
-          myMotorDriver.setDrive( LEFT_MOTOR, LEFT_DIR_FW,  (int)(0 * LEFT_FW_FACTOR));
-          myMotorDriver.setDrive( RIGHT_MOTOR, RIGHT_DIR_FW, (int)(0 * RIGHT_FW_FACTOR));
-          Serial.println("Stop Button");
+          endMatch();
         }
         if (action == "calibrateDriveLeft") {
           startCalibrateDriveLeft();
@@ -1140,6 +1263,7 @@ void setupQwiicMotorDriver(){
 // Setup + Loop
 // ------------------------------------------------------------
 void loopMiniSumoOpponent();
+void loopMatch();
 void loopAnimation();
 void loopClientCleanup();
 void printClientList();
@@ -1162,6 +1286,7 @@ void setup() {
 
 void loop() {
   loopMiniSumoOpponent();
+  loopMatch();
   loopAnimation();
   loopClientCleanup();
   loopCalibrate();
@@ -1178,58 +1303,150 @@ void loop() {
 void loopMiniSumoOpponent() {
 
   tof.getAllData(lidarGrid);
+  ringSense = RingSense{};
 
   for (uint8_t y = 0; y < 8; y++) {
     for (uint8_t x = 0; x < 8; x++) {
-
-      if (!rowIsProcessed(y)) {
-        ledmatrix.drawPixel(x + X_OFFSET, y, 0);
-        colorGrid[y][x] = 0;
-        continue;
-      }
-
       int d_mm = lidarGrid[y * 8 + x];
+      uint32_t color = 0;
 
       // Edge rows: off at or under the minimum, yellow/red once farther than it.
       if (y == 6 || y == 7) {
         const int minMm = ((y == 7) ? edgeRedMinCm : edgeYellowMinCm) * 10;
-        if (d_mm > minMm) {
-          if (y == 7) {
-            ledmatrix.drawPixel(x + X_OFFSET, y, ledmatrix.color565(255,0,0));
-            colorGrid[y][x] = 0xFF0000;
-          } else {
-            ledmatrix.drawPixel(x + X_OFFSET, y, ledmatrix.color565(255,255,0));
-            colorGrid[y][x] = 0xFFFF00;
-          }
-        } else {
-          ledmatrix.drawPixel(x + X_OFFSET, y, 0);
-          colorGrid[y][x] = 0;
-        }
-        continue;
-      }
-
-      if (y <= 4) {
+        if (d_mm > minMm) color = (y == 7) ? 0xFF0000 : 0xFFFF00;
+      } else if (y <= 4) {
         const int maxMm = opponentMaxCm * 10;
-        if (d_mm > 0 && d_mm <= maxMm) {
-          ledmatrix.drawPixel(x + X_OFFSET, y, ledmatrix.color565(0,255,0));
-          colorGrid[y][x] = 0x00FF00;
-        } else {
-          ledmatrix.drawPixel(x + X_OFFSET, y, 0);
-          colorGrid[y][x] = 0;
-        }
-        continue;
+        if (d_mm > 0 && d_mm <= maxMm) color = 0x00FF00;
       }
 
-      if (d_mm == INVALID_VAL || d_mm > MAX_DIST) {
+      if (color == 0x00FF00) {
+        ringSense.greenTotal++;
+        if (x <= COL_LEFT_LAST) ringSense.greenLeft++;
+        if (x >= COL_RIGHT_FIRST) ringSense.greenRight++;
+        if (x >= COL_MIDDLE_FIRST && x <= COL_MIDDLE_LAST) ringSense.greenMiddle++;
+      } else if (color == 0xFF0000) {
+        ringSense.redTotal++;
+        if (x <= COL_LEFT_LAST) ringSense.redLeft++;
+        if (x >= COL_RIGHT_FIRST) ringSense.redRight++;
+      } else if (color == 0xFFFF00) {
+        ringSense.yellowTotal++;
+        if (x <= COL_LEFT_LAST) ringSense.yellowLeft++;
+        if (x >= COL_RIGHT_FIRST) ringSense.yellowRight++;
+      }
+
+      if (!rowIsProcessed(y)) color = 0;
+      colorGrid[y][x] = color;
+
+      if (color == 0xFF0000) {
+        ledmatrix.drawPixel(x + X_OFFSET, y, ledmatrix.color565(255, 0, 0));
+      } else if (color == 0xFFFF00) {
+        ledmatrix.drawPixel(x + X_OFFSET, y, ledmatrix.color565(255, 255, 0));
+      } else if (color == 0x00FF00) {
+        ledmatrix.drawPixel(x + X_OFFSET, y, ledmatrix.color565(0, 255, 0));
+      } else {
         ledmatrix.drawPixel(x + X_OFFSET, y, 0);
-        colorGrid[y][x] = 0;
-        continue;
       }
-
-      ledmatrix.drawPixel(x + X_OFFSET, y, 0);
-      colorGrid[y][x] = 0;
     }
   }
+}
+
+static void logMatchDrive(MatchDrive mode, const char* label) {
+  if (lastMatchDrive == mode) return;
+  lastMatchDrive = mode;
+  Serial.printf("Match %s  yellow L=%d R=%d  red L=%d R=%d\n",
+                label,
+                ringSense.yellowLeft,
+                ringSense.yellowRight,
+                ringSense.redLeft,
+                ringSense.redRight);
+}
+
+// Positive driveArc turns left, away from a heavier right side.
+static void steerAwayFromGreaterSide(int leftHits, int rightHits, int turn, const char* band) {
+  if (rightHits > leftHits) {
+    logMatchDrive(DRIVE_TURN_LEFT, band);
+    driveArc(turn);
+    return;
+  }
+  logMatchDrive(DRIVE_TURN_RIGHT, band);
+  driveArc(-turn);
+}
+
+static void steerTowardOpponent() __attribute__((unused));
+static void steerTowardOpponent() {
+  const int diff = ringSense.greenLeft - ringSense.greenRight;
+  const int turn = (fullMotorPower() * abs(diff)) / OPPONENT_TURN_SCALE;
+  if (ringSense.greenMiddle >= FRONT_GREEN_MIN) {
+    logMatchDrive(DRIVE_FORWARD, "opponent in front");
+    driveSigned(fullMotorPower(), fullMotorPower());
+    return;
+  }
+  if (diff > 0) {
+    logMatchDrive(DRIVE_TURN_LEFT, "opponent left");
+    driveArc(turn);
+  } else if (diff < 0) {
+    logMatchDrive(DRIVE_TURN_RIGHT, "opponent right");
+    driveArc(-turn);
+  } else {
+    logMatchDrive(DRIVE_FORWARD, "opponent centered");
+    driveArc(0);
+  }
+}
+
+// Outside wheel at 50%. Inside wheel at half of that when a side is selected.
+void driveDefaultSearch() {
+  const int power = SEARCH_POWER;
+  if (startSide == START_LEFT) {
+    logMatchDrive(DRIVE_TURN_LEFT, "search left at 50%");
+    driveSigned(power / 2, power);
+    return;
+  }
+  if (startSide == START_RIGHT) {
+    logMatchDrive(DRIVE_TURN_RIGHT, "search right at 50%");
+    driveSigned(power, power / 2);
+    return;
+  }
+  logMatchDrive(DRIVE_FORWARD, "search forward at 50%");
+  driveSigned(power, power);
+}
+
+// Opponent steering is kept in steerTowardOpponent() and is not called.
+// Motors stay stopped until the countdown reaches zero.
+void loopMatch() {
+  if (matchPhase == MATCH_IDLE) return;
+
+  if (matchPhase == MATCH_COUNTDOWN) {
+    if ((millis() - countdownStartMs) < MATCH_COUNTDOWN_MS) {
+      logMatchDrive(DRIVE_STOP, "countdown hold");
+      stopAllMotors();
+      return;
+    }
+    matchPhase = MATCH_RUN;
+    lastMatchDrive = DRIVE_STOP;
+    Serial.println("Countdown done, match running");
+  }
+
+  const int power = fullMotorPower();
+
+  if (ringSense.redTotal >= RED_OVERRIDE_MIN) {
+    if (ringSense.redLeft == ringSense.redRight) {
+      logMatchDrive(DRIVE_REVERSE, "red edge tied, reverse");
+      driveSigned(-power, -power);
+      return;
+    }
+    steerAwayFromGreaterSide(ringSense.redLeft, ringSense.redRight,
+                            (power * RED_TURN_NUM) / RED_TURN_DEN,
+                            "red edge, sharp turn");
+    return;
+  }
+  if (ringSense.yellowLeft != ringSense.yellowRight) {
+    steerAwayFromGreaterSide(ringSense.yellowLeft, ringSense.yellowRight,
+                            (power * YELLOW_TURN_NUM) / YELLOW_TURN_DEN,
+                            "yellow edge, slight turn");
+    return;
+  }
+
+  driveDefaultSearch();
 }
 
 // ------------------------------------------------------------
