@@ -30,6 +30,7 @@ uint8_t LEFT_MOTOR  = 1;
 uint8_t RIGHT_MOTOR = 0;
 int leftMotor256 = 0;
 int rightMotor256 = 0;
+int motorPowerPercent = 25;
 float RIGHT_FW_FACTOR = 1.0f;
 float LEFT_FW_FACTOR  = 1.0f;
 float RIGHT_RV_FACTOR = 1.0f;
@@ -122,7 +123,6 @@ unsigned long calibPhaseStart = 0;
 bool calibUseLeft = false;
 bool calibUseRight = false;
 const char* calibDoneMessage = "CALIBRATE_DONE";
-static const int CALIB_POWER = 64; // ~25% of 255
 static const unsigned long CALIB_PHASE_MS = 3000;
 
 enum SendMode { MODE_FULL, MODE_BITMASK };
@@ -215,6 +215,31 @@ static int clampCm(int cm, int lo, int hi) {
   return cm;
 }
 
+static bool validPowerPercent(int percent) {
+  return percent == 25 || percent == 50 || percent == 75 || percent == 100;
+}
+
+static int fullMotorPower() {
+  return (255 * motorPowerPercent) / 100;
+}
+
+void applyCalibDrive(bool forward);
+
+static void setMotorPowerPercent(int percent) {
+  if (!validPowerPercent(percent)) percent = 25;
+  motorPowerPercent = percent;
+  if (calibPhase != CALIB_IDLE) {
+    applyCalibDrive(calibPhase == CALIB_FORWARD);
+    return;
+  }
+  if (animationRunning && (leftMotor256 > 0 || rightMotor256 > 0)) {
+    leftMotor256 = fullMotorPower();
+    rightMotor256 = fullMotorPower();
+    myMotorDriver.setDrive(LEFT_MOTOR, LEFT_DIR_FW, (int)(leftMotor256 * LEFT_FW_FACTOR));
+    myMotorDriver.setDrive(RIGHT_MOTOR, RIGHT_DIR_FW, (int)(rightMotor256 * RIGHT_FW_FACTOR));
+  }
+}
+
 static void applyModeString(String m) {
   m.trim();
   m.toLowerCase();
@@ -246,6 +271,7 @@ void saveMiniSumoSettings() {
   right["fwFactor"] = RIGHT_FW_FACTOR;
   right["rvFactor"] = RIGHT_RV_FACTOR;
   right["invert"] = rightMotorInvert;
+  doc["motors"]["powerPercent"] = motorPowerPercent;
 
   JsonObject lidar = doc["lidar"].to<JsonObject>();
   lidar["xOffset"] = X_OFFSET;
@@ -276,13 +302,14 @@ void saveMiniSumoSettings() {
   serializeJsonPretty(doc, file);
   file.flush();
   file.close();
-  Serial.printf("Saved %s mode=%s sensors=%s red=%d yellow=%d opponentMax=%d\n",
+  Serial.printf("Saved %s mode=%s sensors=%s red=%d yellow=%d opponentMax=%d power=%d\n",
                 SETTINGS_PATH,
                 (sendMode == MODE_BITMASK) ? "bitmask" : "full",
                 sensorViewName(),
                 edgeRedMinCm,
                 edgeYellowMinCm,
-                opponentMaxCm);
+                opponentMaxCm,
+                motorPowerPercent);
 }
 
 static void applyMotorSettings(JsonObjectConst motor, uint8_t& channel, uint8_t& dirFw,
@@ -325,6 +352,9 @@ void loadMiniSumoSettings() {
     applyMotorSettings(doc["motors"]["right"].as<JsonObjectConst>(),
                        RIGHT_MOTOR, RIGHT_DIR_FW, RIGHT_DIR_RV,
                        RIGHT_FW_FACTOR, RIGHT_RV_FACTOR, rightMotorInvert);
+  }
+  if (!doc["motors"]["powerPercent"].isNull()) {
+    setMotorPowerPercent(doc["motors"]["powerPercent"].as<int>());
   }
   if (doc["lidar"].is<JsonObject>()) {
     JsonObjectConst lidar = doc["lidar"].as<JsonObjectConst>();
@@ -615,7 +645,7 @@ void applyCalibDrive(bool forward) {
   if (calibUseLeft) {
     const uint8_t dir = forward ? LEFT_DIR_FW : LEFT_DIR_RV;
     const float factor = forward ? LEFT_FW_FACTOR : LEFT_RV_FACTOR;
-    myMotorDriver.setDrive(LEFT_MOTOR, dir, (int)(CALIB_POWER * factor));
+    myMotorDriver.setDrive(LEFT_MOTOR, dir, (int)(fullMotorPower() * factor));
   } else {
     myMotorDriver.setDrive(LEFT_MOTOR, LEFT_DIR_FW, 0);
   }
@@ -623,7 +653,7 @@ void applyCalibDrive(bool forward) {
   if (calibUseRight) {
     const uint8_t dir = forward ? RIGHT_DIR_FW : RIGHT_DIR_RV;
     const float factor = forward ? RIGHT_FW_FACTOR : RIGHT_RV_FACTOR;
-    myMotorDriver.setDrive(RIGHT_MOTOR, dir, (int)(CALIB_POWER * factor));
+    myMotorDriver.setDrive(RIGHT_MOTOR, dir, (int)(fullMotorPower() * factor));
   } else {
     myMotorDriver.setDrive(RIGHT_MOTOR, RIGHT_DIR_FW, 0);
   }
@@ -640,7 +670,9 @@ void startCalibrate(bool useLeft, bool useRight, const char* label, const char* 
   calibPhase = CALIB_FORWARD;
   calibPhaseStart = millis();
   Serial.print(label);
-  Serial.println(": forward 25% for 3s");
+  Serial.print(": forward ");
+  Serial.print(motorPowerPercent);
+  Serial.println("% for 3s");
   applyCalibDrive(true);
 }
 
@@ -667,7 +699,9 @@ void loopCalibrate() {
   if (calibPhase == CALIB_FORWARD) {
     calibPhase = CALIB_REVERSE;
     calibPhaseStart = millis();
-    Serial.println("Calibration: reverse 25% for 3s");
+    Serial.print("Calibration: reverse ");
+    Serial.print(motorPowerPercent);
+    Serial.println("% for 3s");
     applyCalibDrive(false);
     return;
   }
@@ -907,6 +941,7 @@ void setupWebServer() {
     doc["edgeRedMinCm"] = edgeRedMinCm;
     doc["edgeYellowMinCm"] = edgeYellowMinCm;
     doc["opponentMaxCm"] = opponentMaxCm;
+    doc["powerPercent"] = motorPowerPercent;
     String body;
     serializeJson(doc, body);
     request->send(200, "application/json", body);
@@ -939,6 +974,9 @@ void setupWebServer() {
       }
       if (!doc["opponentMaxCm"].isNull()) {
         opponentMaxCm = clampCm(doc["opponentMaxCm"].as<int>(), 15, 75);
+      }
+      if (!doc["powerPercent"].isNull()) {
+        setMotorPowerPercent(doc["powerPercent"].as<int>());
       }
       saveMiniSumoSettings();
       request->send(200, "application/json", "{\"ok\":true}");
@@ -1006,8 +1044,8 @@ void setupWebServer() {
         String action = doc["action"].as<String>();
         if (action == "start"){
           animationRunning = true;
-          leftMotor256=150;
-          rightMotor256=150;
+          leftMotor256 = fullMotorPower();
+          rightMotor256 = fullMotorPower();
           myMotorDriver.setDrive( LEFT_MOTOR, LEFT_DIR_FW,  (int)(leftMotor256 * LEFT_FW_FACTOR));
           myMotorDriver.setDrive( RIGHT_MOTOR, RIGHT_DIR_FW, (int)(rightMotor256 * RIGHT_FW_FACTOR));
           Serial.println("Start Button");

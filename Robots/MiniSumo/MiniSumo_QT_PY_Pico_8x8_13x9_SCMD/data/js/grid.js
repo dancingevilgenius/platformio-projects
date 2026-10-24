@@ -51,6 +51,13 @@ function isRowEnabled(row) {
     return true;
 }
 
+function triggeredColor(index) {
+    const row = rowOfCell(index);
+    if (row === 7) return 0xFF0000;
+    if (row === 6) return 0xFFFF00;
+    return 0x00FF00;
+}
+
 function applySensorView(view, notifyServer) {
     sensorView = view;
     for (let i = 0; i < cells.length; i++) {
@@ -167,7 +174,7 @@ function connectWebSocket() {
 
             for (let i = 0; i < 64; i++) {
                 const on = ((bits >> BigInt(i)) & 1n) === 1n;
-                updateCellColor(i, on ? 0x00FF00 : 0);
+                updateCellColor(i, on ? triggeredColor(i) : 0);
             }
         }
     };
@@ -266,6 +273,10 @@ function applyLoadedSettings(data) {
     if (data.edgeRedMinCm != null) setEdgeMinSelect("redMinSelect", data.edgeRedMinCm);
     if (data.edgeYellowMinCm != null) setEdgeMinSelect("yellowMinSelect", data.edgeYellowMinCm);
     if (data.opponentMaxCm != null) setEdgeMinSelect("opponentMaxSelect", data.opponentMaxCm);
+    const powerSelect = document.getElementById("powerSelect");
+    if (powerSelect && data.powerPercent != null) {
+        powerSelect.value = String(data.powerPercent);
+    }
     applyingSettings = false;
 }
 
@@ -423,6 +434,11 @@ function setupControls() {
     opponentMaxSelect.onchange = () => {
         if (applyingSettings) return;
         postSetting({ opponentMaxCm: parseInt(opponentMaxSelect.value, 10) });
+    };
+    const powerSelect = document.getElementById("powerSelect");
+    powerSelect.onchange = () => {
+        if (applyingSettings) return;
+        postSetting({ powerPercent: parseInt(powerSelect.value, 10) });
     };
 
     loadSettings();

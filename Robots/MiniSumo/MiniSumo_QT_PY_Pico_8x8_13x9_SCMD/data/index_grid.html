@@ -124,6 +124,15 @@
             <label for="opponentMaxSelect">Opponent Max:</label>
             <select id="opponentMaxSelect"></select>
         </div>
+        <div class="fps-row">
+            <label for="powerSelect">Power:</label>
+            <select id="powerSelect">
+                <option value="25" selected>25%</option>
+                <option value="50">50%</option>
+                <option value="75">75%</option>
+                <option value="100">100%</option>
+            </select>
+        </div>
         <button type="button" id="healthCheckBtn" class="action-btn">Health Check</button>
         <select id="calibrateSelect" aria-label="Calibration">
             <option value="" selected>Choose Calibration</option>
@@ -139,6 +148,6 @@
 
 <div id="snackbar-container"></div>
 
-<script src="/js/grid.js?v=8"></script>
+<script src="/js/grid.js?v=10"></script>
 </body>
 </html>

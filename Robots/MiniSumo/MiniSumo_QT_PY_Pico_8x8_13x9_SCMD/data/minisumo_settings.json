@@ -15,7 +15,8 @@
       "fwFactor": 1.0,
       "rvFactor": 1.0,
       "invert": false
-    }
+    },
+    "powerPercent": 25
   },
   "lidar": {
     "xOffset": 2,
