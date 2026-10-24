@@ -79,6 +79,8 @@ Adafruit_IS31FL3741_QT ledmatrix;
 int X_OFFSET = 2;
 int INVALID_VAL = 4000;
 int MAX_DIST = 570;
+int edgeRedMinCm = 10;     // bottom row (y = 7)
+int edgeYellowMinCm = 15;  // next row up (y = 6)
 
 // 8 rows × 10 columns = 80 RGB cells
 uint32_t colorGrid[8][8] = {0};
@@ -124,6 +126,16 @@ static const unsigned long CALIB_PHASE_MS = 3000;
 
 enum SendMode { MODE_FULL, MODE_BITMASK };
 SendMode sendMode = MODE_FULL;
+
+// Both: every row. Edge: yellow (y=6) and red (y=7). Opponent: green (y<=4).
+enum SensorView { SENSORS_BOTH, SENSORS_EDGE, SENSORS_OPPONENT };
+SensorView sensorView = SENSORS_BOTH;
+
+static bool rowIsProcessed(uint8_t y) {
+  if (sensorView == SENSORS_EDGE) return y == 6 || y == 7;
+  if (sensorView == SENSORS_OPPONENT) return y <= 4;
+  return true;
+}
 
 // ------------------------------------------------------------
 // D-Pad menu state
@@ -211,6 +223,8 @@ void saveMiniSumoSettings() {
   lidar["xOffset"] = X_OFFSET;
   lidar["invalidVal"] = INVALID_VAL;
   lidar["maxDist"] = MAX_DIST;
+  lidar["edgeRedMinCm"] = edgeRedMinCm;
+  lidar["edgeYellowMinCm"] = edgeYellowMinCm;
 
   JsonObject lastGood = doc["lastGoodConnection"].to<JsonObject>();
   lastGood["ssid"] = lastGoodSsid;
@@ -272,6 +286,12 @@ void loadMiniSumoSettings() {
     X_OFFSET = lidar["xOffset"] | X_OFFSET;
     INVALID_VAL = lidar["invalidVal"] | INVALID_VAL;
     MAX_DIST = lidar["maxDist"] | MAX_DIST;
+    edgeRedMinCm = lidar["edgeRedMinCm"] | edgeRedMinCm;
+    edgeYellowMinCm = lidar["edgeYellowMinCm"] | edgeYellowMinCm;
+    if (edgeRedMinCm < 10) edgeRedMinCm = 10;
+    if (edgeRedMinCm > 20) edgeRedMinCm = 20;
+    if (edgeYellowMinCm < 15) edgeYellowMinCm = 15;
+    if (edgeYellowMinCm > 30) edgeYellowMinCm = 30;
   }
   if (doc["lastGoodConnection"].is<JsonObject>()) {
     JsonObjectConst lastGood = doc["lastGoodConnection"].as<JsonObjectConst>();
@@ -643,6 +663,33 @@ void handleCommand(const String& msg, AsyncWebSocketClient* client) {
     Serial.print("sendMode:");
     Serial.println(sendMode);
   }
+  else if (msg.startsWith("SENSORS:")) {
+    String view = msg.substring(8);
+    view.toLowerCase();
+    if (view == "edge") sensorView = SENSORS_EDGE;
+    else if (view == "opponent") sensorView = SENSORS_OPPONENT;
+    else sensorView = SENSORS_BOTH;
+    Serial.print("sensorView:");
+    Serial.println(view);
+  }
+  else if (msg.startsWith("EDGE_RED_CM:")) {
+    int cm = msg.substring(12).toInt();
+    if (cm < 10) cm = 10;
+    if (cm > 20) cm = 20;
+    edgeRedMinCm = cm;
+    saveMiniSumoSettings();
+    Serial.print("edgeRedMinCm:");
+    Serial.println(edgeRedMinCm);
+  }
+  else if (msg.startsWith("EDGE_YELLOW_CM:")) {
+    int cm = msg.substring(15).toInt();
+    if (cm < 15) cm = 15;
+    if (cm > 30) cm = 30;
+    edgeYellowMinCm = cm;
+    saveMiniSumoSettings();
+    Serial.print("edgeYellowMinCm:");
+    Serial.println(edgeYellowMinCm);
+  }
   else if (msg.startsWith("SNACK:")) {
     int p1 = msg.indexOf(':', 6);
     if (p1 > 0) {
@@ -700,6 +747,7 @@ void setupWebServer() {
           Serial.printf("WS: Client %u connected | IP: %s\n",
                         client->id(),
                         client->remoteIP().toString().c_str());
+          safeTextClient(client, String("EDGE_MIN:") + edgeRedMinCm + "," + edgeYellowMinCm);
           return;
       }
 
@@ -755,7 +803,9 @@ void setupWebServer() {
 
   // Root → Autonomous / grid page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(LittleFS, "/index_grid.html", "text/html");
+    AsyncWebServerResponse *response = request->beginResponse(LittleFS, "/index_grid.html", "text/html");
+    response->addHeader("Cache-Control", "no-cache");
+    request->send(response);
   });
 
   // ---------------- DPAD PAGE ----------------
@@ -773,7 +823,9 @@ void setupWebServer() {
 
   // ---------------- GRID PAGE ----------------
   server.on("/index_grid.html", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(LittleFS, "/index_grid.html", "text/html");
+    AsyncWebServerResponse *response = request->beginResponse(LittleFS, "/index_grid.html", "text/html");
+    response->addHeader("Cache-Control", "no-cache");
+    request->send(response);
   });
 
   server.on("/css/grid.css", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -781,7 +833,9 @@ void setupWebServer() {
   });
 
   server.on("/js/grid.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(LittleFS, "/js/grid.js", "application/javascript");
+    AsyncWebServerResponse *response = request->beginResponse(LittleFS, "/js/grid.js", "application/javascript");
+    response->addHeader("Cache-Control", "no-cache");
+    request->send(response);
   });
 
   // ---------------- DPAD PAGE ----------------
@@ -992,7 +1046,31 @@ void loopMiniSumoOpponent() {
   for (uint8_t y = 0; y < 8; y++) {
     for (uint8_t x = 0; x < 8; x++) {
 
+      if (!rowIsProcessed(y)) {
+        ledmatrix.drawPixel(x + X_OFFSET, y, 0);
+        colorGrid[y][x] = 0;
+        continue;
+      }
+
       int d_mm = lidarGrid[y * 8 + x];
+
+      // Edge rows: off at or under the minimum, yellow/red once farther than it.
+      if (y == 6 || y == 7) {
+        const int minMm = ((y == 7) ? edgeRedMinCm : edgeYellowMinCm) * 10;
+        if (d_mm > minMm) {
+          if (y == 7) {
+            ledmatrix.drawPixel(x + X_OFFSET, y, ledmatrix.color565(255,0,0));
+            colorGrid[y][x] = 0xFF0000;
+          } else {
+            ledmatrix.drawPixel(x + X_OFFSET, y, ledmatrix.color565(255,255,0));
+            colorGrid[y][x] = 0xFFFF00;
+          }
+        } else {
+          ledmatrix.drawPixel(x + X_OFFSET, y, 0);
+          colorGrid[y][x] = 0;
+        }
+        continue;
+      }
 
       if (d_mm == INVALID_VAL || d_mm > MAX_DIST) {
         ledmatrix.drawPixel(x + X_OFFSET, y, 0);
@@ -1008,22 +1086,6 @@ void loopMiniSumoOpponent() {
         continue;
       }
 
-      if (y == 6) {
-        if (d_mm > 0) {
-          ledmatrix.drawPixel(x + X_OFFSET, y, ledmatrix.color565(255,255,0));
-          colorGrid[y][x] = 0xFFFF00;
-        }
-        continue;
-      }
-
-      if (y == 7) {
-        if (d_mm > 0) {
-          ledmatrix.drawPixel(x + X_OFFSET, y, ledmatrix.color565(255,0,0));
-          colorGrid[y][x] = 0xFF0000;
-        }
-        continue;
-      }
-
       ledmatrix.drawPixel(x + X_OFFSET, y, 0);
       colorGrid[y][x] = 0;
     }
@@ -1035,12 +1097,14 @@ void loopMiniSumoOpponent() {
 // ------------------------------------------------------------
   
 void sendFullGrid() {
-    // 80 cells × 4 bytes = 320 bytes
-    const size_t frameSize = 64 * 4;
+    uint32_t frame[8][8];
+    for (int y = 0; y < 8; y++) {
+      for (int x = 0; x < 8; x++) {
+        frame[y][x] = rowIsProcessed(y) ? colorGrid[y][x] : 0;
+      }
+    }
 
-    // Broadcast the entire RGB grid buffer
-    //ws.binaryAll((uint8_t*)colorGrid, frameSize);
-    safeBinaryAll((uint8_t*)colorGrid, frameSize);
+    safeBinaryAll((uint8_t*)frame, sizeof(frame));
 }
 
 // ------------------------------------------------------------
@@ -1050,6 +1114,7 @@ void sendBitGrid() {
   uint64_t bits = 0;
 
   for (int y = 0; y < 8; y++) {
+    if (!rowIsProcessed(y)) continue;
     for (int x = 0; x < 8; x++) {
       if (colorGrid[y][x] != 0) {
         bits |= (uint64_t)1 << (y * 8 + x);

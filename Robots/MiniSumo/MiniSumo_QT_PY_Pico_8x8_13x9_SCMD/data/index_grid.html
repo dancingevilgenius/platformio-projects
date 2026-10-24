@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>8×8 Grid</title>
-<link rel="stylesheet" href="/css/dpad.css">
+<link rel="stylesheet" href="/css/dpad.css?v=4">
 </head>
 
 <body>
@@ -104,6 +104,22 @@
                 <option value="1">Bitmask</option>
             </select>
         </div>
+        <div class="fps-row">
+            <label for="sensorSelect">Sensors:</label>
+            <select id="sensorSelect">
+                <option value="both" selected>Both</option>
+                <option value="edge">Edge</option>
+                <option value="opponent">Opponent</option>
+            </select>
+        </div>
+        <div class="fps-row">
+            <label for="redMinSelect">Edge - Red:</label>
+            <select id="redMinSelect"></select>
+        </div>
+        <div class="fps-row">
+            <label for="yellowMinSelect">Edge - Yellow:</label>
+            <select id="yellowMinSelect"></select>
+        </div>
         <button type="button" id="healthCheckBtn" class="action-btn">Health Check</button>
         <select id="calibrateSelect" aria-label="Calibration">
             <option value="" selected>Choose Calibration</option>
@@ -119,6 +135,6 @@
 
 <div id="snackbar-container"></div>
 
-<script src="/js/grid.js"></script>
+<script src="/js/grid.js?v=5"></script>
 </body>
 </html>

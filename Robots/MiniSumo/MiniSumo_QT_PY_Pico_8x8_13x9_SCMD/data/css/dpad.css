@@ -282,6 +282,10 @@ select {
     transition: background 0.1s linear;
 }
 
+.grid-cell.is-filtered {
+    background: #1a1a1a !important;
+}
+
 #stats {
     margin-bottom: 4px;
     font-size: 9px;

@@ -20,7 +20,9 @@
   "lidar": {
     "xOffset": 2,
     "invalidVal": 4000,
-    "maxDist": 570
+    "maxDist": 570,
+    "edgeRedMinCm": 10,
+    "edgeYellowMinCm": 15
   },
   "lastGoodConnection": {
     "ssid": "",

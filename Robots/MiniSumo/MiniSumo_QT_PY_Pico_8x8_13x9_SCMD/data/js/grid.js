@@ -39,6 +39,25 @@ let frameCount = 0;
 let lastFPSUpdate = performance.now();
 
 let cells = [];
+let sensorView = "both";
+
+function rowOfCell(index) {
+    return Math.floor(index / 8);
+}
+
+function isRowEnabled(row) {
+    if (sensorView === "edge") return row === 6 || row === 7;
+    if (sensorView === "opponent") return row <= 4;
+    return true;
+}
+
+function applySensorView(view, notifyServer) {
+    sensorView = view;
+    for (let i = 0; i < cells.length; i++) {
+        if (!isRowEnabled(rowOfCell(i))) updateCellColor(i, 0);
+    }
+    if (notifyServer) sendCommand("SENSORS:" + view);
+}
 
 // --- WebSocket connection ---
 function connectWebSocket() {
@@ -50,6 +69,8 @@ function connectWebSocket() {
         socket.send("UA:" + navigator.userAgent);
         lastPingTime = performance.now();
         socket.send("PING");
+        const sensorSelect = document.getElementById("sensorSelect");
+        if (sensorSelect) applySensorView(sensorSelect.value, true);
         if (reconnectTimer) clearTimeout(reconnectTimer);
     };
 
@@ -80,6 +101,13 @@ function connectWebSocket() {
                         : "Drive calibration complete",
                     "success"
                 );
+                return;
+            }
+
+            if (event.data.startsWith("EDGE_MIN:")) {
+                const parts = event.data.substring(9).split(",");
+                setEdgeMinSelect("redMinSelect", parts[0]);
+                setEdgeMinSelect("yellowMinSelect", parts[1]);
                 return;
             }
 
@@ -148,8 +176,19 @@ function updateFPS() {
 
 // --- Update grid cell color ---
 function updateCellColor(index, rgb) {
+    const cell = cells[index];
+    if (!cell) return;
+
+    if (!isRowEnabled(rowOfCell(index))) {
+        cell.classList.add("is-filtered");
+        cell.style.background = "#1a1a1a";
+        return;
+    }
+
+    cell.classList.remove("is-filtered");
+
     if (rgb === 0) {
-        cells[index].style.background = "#444"; // lighter inactive color
+        cell.style.background = "#444"; // lighter inactive color
         return;
     }
 
@@ -157,10 +196,30 @@ function updateCellColor(index, rgb) {
     let g = (rgb >> 8) & 0xFF;
     let b = rgb & 0xFF;
 
-    cells[index].style.background = `rgb(${r},${g},${b})`;
+    cell.style.background = `rgb(${r},${g},${b})`;
 }
 
 // --- Send WS command ---
+function fillCmSelect(select, minCm, maxCm, selectedCm) {
+    select.innerHTML = "";
+    for (let cm = minCm; cm <= maxCm; cm++) {
+        const opt = document.createElement("option");
+        opt.value = cm + " cm";
+        opt.textContent = cm + " cm";
+        if (cm === selectedCm) opt.selected = true;
+        select.appendChild(opt);
+    }
+}
+
+function setEdgeMinSelect(id, cm) {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const value = String(cm).replace(" cm", "") + " cm";
+    if ([...select.options].some((opt) => opt.value === value)) {
+        select.value = value;
+    }
+}
+
 function sendCommand(cmd) {
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(cmd);
@@ -261,6 +320,12 @@ function setupControls() {
     const btnRun = document.getElementById("btnRun");
     const fpsSlider = document.getElementById("fpsSlider");
     const modeSelect = document.getElementById("modeSelect");
+    const sensorSelect = document.getElementById("sensorSelect");
+    const redMinSelect = document.getElementById("redMinSelect");
+    const yellowMinSelect = document.getElementById("yellowMinSelect");
+
+    fillCmSelect(redMinSelect, 10, 20, 10);
+    fillCmSelect(yellowMinSelect, 15, 30, 15);
 
     let running = true;
 
@@ -282,14 +347,25 @@ function setupControls() {
         const pkt = (modeSelect.value === "0") ? 256 : 8;
         document.getElementById("pkt").textContent = pad3(pkt);
     };
+
+    sensorSelect.onchange = () => {
+        applySensorView(sensorSelect.value, true);
+    };
+
+    redMinSelect.onchange = () => {
+        sendCommand("EDGE_RED_CM:" + redMinSelect.value);
+    };
+    yellowMinSelect.onchange = () => {
+        sendCommand("EDGE_YELLOW_CM:" + yellowMinSelect.value);
+    };
 }
 
 // --- Mode dropdown (Grid <-> DPad) ---
 document.addEventListener("DOMContentLoaded", () => {
     cells = Array.from(document.querySelectorAll(".grid-cell"));
 
-    connectWebSocket();
     setupControls();
+    connectWebSocket();
 
     const dropdown = document.getElementById("modeDropdown");
     if (dropdown) {
