@@ -45,7 +45,6 @@ static const int COL_RIGHT_FIRST = 5;
 static const int COL_MIDDLE_FIRST = 3;
 static const int COL_MIDDLE_LAST = 4;
 static const int RED_OVERRIDE_MIN = 2;
-static const int FRONT_GREEN_MIN = 4;
 // Extra green hits on one side that unload the inside wheel. Past this, it reverses.
 static const int OPPONENT_TURN_SCALE = 8;
 // Fraction of full power taken off the inside wheel.
@@ -1372,25 +1371,29 @@ static void steerAwayFromGreaterSide(int leftHits, int rightHits, int turn, cons
   driveArc(-turn);
 }
 
-static void steerTowardOpponent() __attribute__((unused));
+static void driveStraightHalf() {
+  logMatchDrive(DRIVE_FORWARD, "forward at 50%");
+  driveSigned(SEARCH_POWER, SEARCH_POWER);
+}
+
+// Both wheels stay forward. A bigger green imbalance slows the inside wheel more.
 static void steerTowardOpponent() {
+  const int power = SEARCH_POWER;
   const int diff = ringSense.greenLeft - ringSense.greenRight;
-  const int turn = (fullMotorPower() * abs(diff)) / OPPONENT_TURN_SCALE;
-  if (ringSense.greenMiddle >= FRONT_GREEN_MIN) {
-    logMatchDrive(DRIVE_FORWARD, "opponent in front");
-    driveSigned(fullMotorPower(), fullMotorPower());
+  if (diff == 0) {
+    driveStraightHalf();
     return;
   }
+
+  int turn = (power * abs(diff)) / OPPONENT_TURN_SCALE;
+  if (turn > power) turn = power;
   if (diff > 0) {
     logMatchDrive(DRIVE_TURN_LEFT, "opponent left");
-    driveArc(turn);
-  } else if (diff < 0) {
-    logMatchDrive(DRIVE_TURN_RIGHT, "opponent right");
-    driveArc(-turn);
-  } else {
-    logMatchDrive(DRIVE_FORWARD, "opponent centered");
-    driveArc(0);
+    driveSigned(power - turn, power);
+    return;
   }
+  logMatchDrive(DRIVE_TURN_RIGHT, "opponent right");
+  driveSigned(power, power - turn);
 }
 
 // Outside wheel at 50%. Inside wheel at half of that when a side is selected.
@@ -1410,8 +1413,9 @@ void driveDefaultSearch() {
   driveSigned(power, power);
 }
 
-// Opponent steering is kept in steerTowardOpponent() and is not called.
 // Motors stay stopped until the countdown reaches zero.
+// Two red cells override yellow. With one or fewer yellow and red cells,
+// drive straight, or arc toward the side with more green.
 void loopMatch() {
   if (matchPhase == MATCH_IDLE) return;
 
@@ -1437,6 +1441,11 @@ void loopMatch() {
     steerAwayFromGreaterSide(ringSense.redLeft, ringSense.redRight,
                             (power * RED_TURN_NUM) / RED_TURN_DEN,
                             "red edge, sharp turn");
+    return;
+  }
+  if (ringSense.yellowTotal <= 1 && ringSense.redTotal <= 1) {
+    if (ringSense.greenTotal > 0) steerTowardOpponent();
+    else driveStraightHalf();
     return;
   }
   if (ringSense.yellowLeft != ringSense.yellowRight) {
